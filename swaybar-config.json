@@ -1,0 +1,14 @@
+{
+	"poll_time" : 50,
+	"default_timeout": 100,
+	"persist": {
+		"path": "/home/tombert/.config/sway/persist.out",
+		"buffer_size": 1000
+	},
+	"modules" : [
+		{
+			"name": "date",
+			"ttl": 400 
+		}
+	]
+}
