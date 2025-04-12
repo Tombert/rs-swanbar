@@ -2,7 +2,7 @@
 	"poll_time" : 100,
 	"default_timeout": 100,
 	"persist": {
-		"path": "/home/tombert/.config/sway/persist.out",
+		"path": "/home/tombert/.config/sway/persist.json",
 		"buffer_size": 1000
 	},
 	"modules" : [

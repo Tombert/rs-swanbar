@@ -4,7 +4,9 @@ use chrono::{Datelike, Local, Timelike};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use tokio::process::Command;
-
+use rand::rngs::StdRng;
+use rand::Rng;
+use rand::SeedableRng;
 use std::error::Error;
 use std::result::Result as StdResult;
 use async_trait::async_trait;
@@ -50,7 +52,7 @@ fn month_abbr(n: u32) -> &'static str {
 
 #[async_trait]
 pub trait Handler: Send + Sync {
-    async fn handle(&self) -> StdResult<HashMap<String,String>, Box<dyn Error >>;
+    async fn handle(&self) -> StdResult<HashMap<String,String>, Box<dyn Error + Send + Sync >>;
     fn render(&self, i: HashMap<String,String>)-> String; 
 }
 
@@ -59,7 +61,7 @@ pub struct Noop;
 
 #[async_trait]
 impl Handler for Noop {
-    async fn handle(&self) -> StdResult<HashMap<String,String>, Box<dyn Error>> {
+    async fn handle(&self) -> StdResult<HashMap<String,String>, Box<dyn Error + Send + Sync >> {
         let mut out_hash = HashMap::new();
         out_hash.insert("".to_string(),"".to_string());
         Ok(out_hash)
@@ -98,7 +100,7 @@ struct ChatResponse {
     choices: Vec<Choice>,
 }
 
-pub async fn get_inspirational_quote(api_key: &str, prompt: &str) -> Result<String, Box<dyn Error>> {
+pub async fn get_inspirational_quote(api_key: &str, prompt: &str) -> Result<String, Box<dyn Error + Send + Sync>> {
     let client = Client::new();
 
     let body = ChatRequest {
@@ -127,11 +129,18 @@ pub struct Quote;
 
 #[async_trait]
 impl Handler for Quote {
-    async fn handle(&self) -> StdResult<HashMap<String,String>, Box<dyn Error>> {
+    async fn handle(&self) -> StdResult<HashMap<String,String>, Box<dyn Error + Send + Sync >> {
 
-        let config_str = read_to_string("/home/tombert/openai.key")?;
-        let config_str = config_str.trim();
-        let quote = get_inspirational_quote(config_str,  "Give me an inspirational quote about panda bears").await?;
+        let topics_str = tokio::fs::read_to_string("/home/tombert/.config/sway/topics").await?;
+        let topics : Vec<String> = topics_str.lines().map(|i| i.to_string()).collect();
+        let mut rng = StdRng::from_entropy();
+        let random_num = rng.gen_range(0..topics.len());
+        let default_quote = "French Fry Dumpsters".to_string();
+        let topic = topics.get(random_num).unwrap_or(&default_quote);
+        let api_key = tokio::fs::read_to_string("/home/tombert/openai.key").await?;
+        let api_key = api_key.trim();
+        let prompt = format!("Give me an inspirational quote about {} with a fictional author with a pun about {}", topic, topic);
+        let quote = get_inspirational_quote(api_key, prompt.as_str()).await?;
         let out_map: HashMap<String, String> = [("quote", quote)].iter().map(|(k,v)| (k.to_string(), v.to_string())).collect();
         Ok(out_map)
     }
@@ -149,7 +158,7 @@ pub struct Battery;
 
 #[async_trait]
 impl Handler for Battery {
-    async fn handle(&self) -> StdResult<HashMap<String,String>, Box<dyn Error>> {
+    async fn handle(&self) -> StdResult<HashMap<String,String>, Box<dyn Error + Send + Sync >> {
         let bat_path = "/sys/class/power_supply/BAT0";
         let cap_path = format!("{}/capacity", bat_path);
         let stat_path = format!("{}/status", bat_path);
@@ -177,7 +186,7 @@ pub struct Wifi;
 
 #[async_trait]
 impl Handler for Wifi {
-    async fn handle(&self) -> StdResult<HashMap<String,String>, Box<dyn Error>> {
+    async fn handle(&self) -> StdResult<HashMap<String,String>, Box<dyn Error + Send + Sync >> {
 
         let wifi_cmd = Command::new("iw").arg("dev").output().await?;
         let s : Vec<String> = String::from_utf8_lossy(&wifi_cmd.stdout).lines().map(|s| s.trim().to_string()).collect();
@@ -226,7 +235,7 @@ fn bat_status_icons(n: &str) -> &'static str {
 pub struct Volume;
 #[async_trait]
 impl Handler for Volume {
-    async fn handle(&self) -> StdResult<HashMap<String,String>, Box<dyn Error>> {
+    async fn handle(&self) -> StdResult<HashMap<String,String>, Box<dyn Error + Send + Sync >> {
         let SPACE = " ".to_string();
         let is_muted_cmd = Command::new("pactl").arg("get-sink-mute").arg("@DEFAULT_SINK@").output().await?;
         let vol_info_cmd = Command::new("pactl").arg("get-sink-volume").arg("@DEFAULT_SINK@").output().await?; 
@@ -278,7 +287,7 @@ pub struct Date;
 
 #[async_trait]
 impl Handler for Date{
-    async fn handle(&self) -> StdResult<HashMap<String,String>, Box<dyn Error>> {
+    async fn handle(&self) -> StdResult<HashMap<String,String>, Box<dyn Error + Send + Sync >> {
         let now = Local::now();
         let weekday = now.weekday();
         let day = now.day();

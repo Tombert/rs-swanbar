@@ -1,6 +1,8 @@
 use tokio::sync::mpsc::{channel, Receiver};
 use tokio::task::JoinHandle;
 use std::sync::{Arc, Mutex};
+
+use clap::Parser;
 use std::{collections::HashMap, fs::read_to_string, fs::write};
 use std::error::Error;
 mod types;
@@ -28,37 +30,50 @@ async fn render(mut chan : Receiver<Vec<types::Out>>) {
         while let Some(msg) = chan.recv().await {
             let out_json = serde_json::to_string(&msg);
             match out_json {
-                Ok(out) => println!("{}", out),
+                Ok(out) => println!("{},", out),
                 Err(_) => ()
             }
         }
     });
 }
 
-async fn write_state(mut chan: Receiver<HashMap<String,Meta>>) {
+async fn write_state(mut chan: Receiver<HashMap<String,Meta>>, out_path : String, buffer_size: i32) {
     tokio::task::spawn(async move {
         let mut counter = 0; 
         while let Some(msg) = chan.recv().await {
-            if counter % 100 == 0 {
+            if counter % buffer_size == 0 {
                 let out_json = serde_json::to_string(&msg);
                 match out_json {
-                    Ok(x) => {write("state.json", x);},
+                    Ok(x) => {write(out_path.as_str(), x);},
                     Err(_) => ()
                 };
             }
-            counter+=1; 
+            counter= (counter + 1) % buffer_size; 
         }
 
     });
 
 }
 
+#[derive(Parser)]
+#[command(name = "swaybar")]
+#[command(author = "thomas@gebert.app")]
+#[command(version = "1.0")]
+#[command(about = "nada")]
+pub struct Args {
+
+    #[arg(short, long)]
+    pub config: Option<String>,
+}
+
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 1)]
 async fn main() -> StdResult<(), Box<dyn Error>> {
-    let config_str = read_to_string("swaybar-config.json")?;
+    let args = Args::parse();
+    let path = args.config.unwrap_or("swaybar-config-new.json".to_string());
+    let config_str = read_to_string(path)?;
     let config : types::Config =  serde_json::from_str(config_str.as_str())?;
-    let init_state_str = match read_to_string("state.json") {
+    let init_state_str = match read_to_string(config.persist.path.to_string()) {
         Ok(my_str) => my_str,
         Err(_) => "{}".to_string()
     };
@@ -70,7 +85,7 @@ async fn main() -> StdResult<(), Box<dyn Error>> {
     render(render_receiver).await;
 
     let (state_sender, state_receiver) = tokio::sync::mpsc::channel::<HashMap<String,Meta>>(10);
-    write_state(state_receiver).await;
+    write_state(state_receiver, config.persist.path, config.persist.buffer_size).await;
 
     loop {
         let loop_begin = std::time::Instant::now();
