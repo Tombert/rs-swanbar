@@ -95,7 +95,7 @@ pub struct Args {
 }
 
 
-#[tokio::main(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::main(flavor = "multi_thread", worker_threads = 1)]
 async fn main() -> StdResult<(), Box<dyn Error>> {
     let stdin = tokio::io::stdin(); // 
     let reader = BufReader::new(stdin);
