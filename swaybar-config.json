@@ -1,5 +1,5 @@
 {
-	"poll_time" : 50,
+	"poll_time" : 100,
 	"default_timeout": 100,
 	"persist": {
 		"path": "/home/tombert/.config/sway/persist.out",
@@ -7,8 +7,20 @@
 	},
 	"modules" : [
 		{
-			"name": "date",
+			"name": "quote",
+			"ttl": 480000
+		},
+		{
+			"name": "volume",
 			"ttl": 400 
+		},
+		{
+			"name": "wifi",
+			"ttl": 10000 
+		},
+		{
+			"name": "date",
+			"ttl": 1000 
 		}
 	]
 }
