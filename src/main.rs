@@ -110,12 +110,12 @@ async fn main() -> StdResult<(), Box<dyn Error>> {
 
     let poll_time_ms = Duration::from_millis(config.poll_time);
     //let mut state : HashMap<String, types::Meta>= HashMap::new();
-    let (render_sender, render_receiver) = tokio::sync::mpsc::channel::<Vec<types::Out>>(20);
+    let (render_sender, render_receiver) = tokio::sync::mpsc::channel::<Vec<types::Out>>(5);
     render(render_receiver).await;
 
-    let (state_sender, state_receiver) = tokio::sync::mpsc::channel::<HashMap<String,Meta>>(20);
+    let (state_sender, state_receiver) = tokio::sync::mpsc::channel::<HashMap<String,Meta>>(5);
 
-    let (mouse_sender, mut mouse_receiver) = tokio::sync::mpsc::channel::<Box<dyn types::MouseHandler>>(10);
+    let (mouse_sender, mut mouse_receiver) = tokio::sync::mpsc::channel::<Box<dyn types::MouseHandler>>(4);
     write_state(state_receiver, config.persist.path, config.persist.buffer_size).await;
     let futures = Arc::new(Mutex::new(HashMap::<String, JoinHandle<HashMap<String, String>>>::new()));
 
