@@ -1,7 +1,9 @@
-use tokio::sync::mpsc::{channel, Receiver};
+use tokio::io::{AsyncBufReadExt, BufReader, Stdin};
+use tokio::sync::mpsc::{channel, Sender, Receiver};
 use tokio::task::JoinHandle;
 use std::sync::{Arc, Mutex};
-
+use serde_json::Value;
+use futures::FutureExt;
 use clap::Parser;
 use std::{collections::HashMap, fs::read_to_string, fs::write};
 use std::error::Error;
@@ -9,7 +11,7 @@ mod types;
 use std::result::Result as StdResult;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use futures::future::join_all;
-use types::Meta;
+use types::{Meta, MouseHandler};
 
 fn get_handler(my_type: &str) -> Box<dyn types::Handler> {
     match my_type {
@@ -18,6 +20,7 @@ fn get_handler(my_type: &str) -> Box<dyn types::Handler> {
         "wifi" => Box::new(types::Wifi),
         "volume" => Box::new(types::Volume),
         "quote" => Box::new(types::Quote),
+        "current" => Box::new(types::CurrentProgram),
         _ => Box::new(types::Noop)
     }
 }
@@ -35,6 +38,31 @@ async fn render(mut chan : Receiver<Vec<types::Out>>) {
             }
         }
     });
+}
+
+fn get_mouse_handler(x : &str) -> Box<dyn MouseHandler> {
+    match x {
+        "wifi" => Box::new(types::WifiClick),
+        "volume" => Box::new(types::VolumeClick),
+        _ => Box::new(types::MouseNoop)
+    }
+
+}
+
+async fn mouse_listener(mut chan : Sender<Box<dyn types::MouseHandler>>, reader: BufReader<Stdin>) {
+    let mut lines = reader.lines();
+
+    tokio::task::spawn(async move {
+         while let Ok(Some(line)) = lines.next_line().await {
+             if let Ok(value) = serde_json::from_str::<Value>(&line){
+                 let instance = &value["instance"];
+                 let inst = instance.as_str().unwrap_or("");
+                 let h = get_mouse_handler(inst);
+                 let _ = chan.send(h).await;
+             }
+         }
+    });
+
 }
 
 async fn write_state(mut chan: Receiver<HashMap<String,Meta>>, out_path : String, buffer_size: i32) {
@@ -67,8 +95,10 @@ pub struct Args {
 }
 
 
-#[tokio::main(flavor = "multi_thread", worker_threads = 1)]
+#[tokio::main(flavor = "multi_thread", worker_threads = 2)]
 async fn main() -> StdResult<(), Box<dyn Error>> {
+    let stdin = tokio::io::stdin(); // 
+    let reader = BufReader::new(stdin);
     let args = Args::parse();
     let path = args.config.unwrap_or("swaybar-config-new.json".to_string());
     let config_str = read_to_string(path)?;
@@ -81,22 +111,30 @@ async fn main() -> StdResult<(), Box<dyn Error>> {
 
     let poll_time_ms = Duration::from_millis(config.poll_time);
     //let mut state : HashMap<String, types::Meta>= HashMap::new();
-    let (render_sender, render_receiver) = tokio::sync::mpsc::channel::<Vec<types::Out>>(10);
+    let (render_sender, render_receiver) = tokio::sync::mpsc::channel::<Vec<types::Out>>(20);
     render(render_receiver).await;
 
-    let (state_sender, state_receiver) = tokio::sync::mpsc::channel::<HashMap<String,Meta>>(10);
-    write_state(state_receiver, config.persist.path, config.persist.buffer_size).await;
+    let (state_sender, state_receiver) = tokio::sync::mpsc::channel::<HashMap<String,Meta>>(20);
 
+    let (mouse_sender, mut mouse_receiver) = tokio::sync::mpsc::channel::<Box<dyn types::MouseHandler>>(10);
+    write_state(state_receiver, config.persist.path, config.persist.buffer_size).await;
+    let futures = Arc::new(Mutex::new(HashMap::<String, JoinHandle<HashMap<String, String>>>::new()));
+
+    mouse_listener(mouse_sender, reader).await;
     loop {
+        if let Some(Some(msg)) = mouse_receiver.recv().now_or_never() {
+            tokio::spawn (async move {
+                let _ = msg.click_handle().await;
+            });
+        }
         let loop_begin = std::time::Instant::now();
-        let futures = Arc::new(Mutex::new(HashMap::<String, JoinHandle<HashMap<String, String>>>::new()));
 
         
         let futs = config.modules.iter().map(|module_config| {
             let default = Meta {
                 is_processing : false,
                 start_time : Duration::ZERO,
-                data: HashMap::new()
+                data: [("month", "BLAH")].iter().map(|(k,v)|(k.to_string(), v.to_string())).collect()
 
             };
             let begin_state = state.get(&module_config.name).unwrap_or(&default).clone();
@@ -134,47 +172,91 @@ async fn main() -> StdResult<(), Box<dyn Error>> {
                     begin_state
                 };
 
-                let mut fut = {
+                let fut = {
                     let mut lock = futures.lock().unwrap();
                     if let Some(handle) = lock.remove(&name) {
                         handle
                     } else {
                         tokio::spawn(async { 
+                            //let out : HashMap<String, String>  = [].iter().map(|(k,v)|(k.to_string(), v.to_string())).collect();
                             HashMap::new()
                         })
                     }
                 };
+                let mut fut_opt = Some(fut); 
 
-                let (new_new_state, res) = match tokio::select! {
-                    res = &mut fut => Some(res),
-                    else => None,
-                } {
-                    Some(Ok(data)) => {
+                let r = fut_opt.as_mut().unwrap().now_or_never();
+                let new_new_state = match r {
+                    Some(Ok(res)) => {
                         let mut temp = new_state.clone();
-                        temp.data.extend(data.clone());
-                        let new_meta = Meta {
+                        temp.data.extend(res.clone());
+                        Meta {
                             is_processing: false,
-                            start_time: new_state.start_time, 
-                            data: temp.data
-                        };
-                        (new_meta, data)
+                            start_time: new_state.start_time,
+                            data: temp.data,
+                        }
                     },
                     Some(Err(_)) => {
                         let mut lock = futures.lock().unwrap();
-                        lock.insert(name.clone(), fut);
-
-                        (new_state.clone(), new_state.data.clone())
-                    },
-                    None => 
-                    {
+                        lock.insert(name.clone(), fut_opt.take().unwrap()); // now safe
+                        new_state.clone()
+                    }
+                    None => {
                         let mut lock = futures.lock().unwrap();
-                        lock.insert(name.clone(), fut);
-                        (new_state.clone(), new_state.data.clone())
-                    },
+                        lock.insert(name.clone(), fut_opt.take().unwrap()); // now safe
+                        new_state.clone()
+                    }
                 };
 
+                // let r = fut.now_or_never();
+                // let new_new_state = if let Some(Ok(res)) = r {
+                //     let mut temp = new_state.clone();
+                //     temp.data.extend(res.clone());
+                //     let new_meta = Meta {
+                //         is_processing: false,
+                //         start_time: new_state.start_time, 
+                //         data: temp.data
+                //     };
+                //     new_meta
+                //
+                //
+                // } else {
+                //         let mut lock = futures.lock().unwrap();
+                //         lock.insert(name.clone(), fut);
+                //
+                //         new_state.clone()
+                //
+                // }
+                // let new_new_state = match tokio::select! {
+                //     res = &mut fut => Some(res),
+                //     else => None,
+                // } {
+                //     Some(Ok(data)) => {
+                //         let mut temp = new_state.clone();
+                //         temp.data.extend(data.clone());
+                //         let new_meta = Meta {
+                //             is_processing: false,
+                //             start_time: new_state.start_time, 
+                //             data: temp.data
+                //         };
+                //         new_meta
+                //     },
+                //     Some(Err(_)) => {
+                //         let mut lock = futures.lock().unwrap();
+                //         lock.insert(name.clone(), fut);
+                //
+                //         new_state.clone()
+                //     },
+                //     None => 
+                //     {
+                //         let mut lock = futures.lock().unwrap();
+                //         lock.insert(name.clone(), fut);
+                //         new_state.clone()
+                //     },
+                // };
 
-                let nnsd = new_new_state.clone().data.clone();
+
+                let nnsd = new_new_state.clone().data;
                 (name.to_string(), new_new_state, handler2.render(nnsd))
             }});
 

@@ -15,12 +15,16 @@
 			"ttl": 400 
 		},
 		{
+			"name": "current",
+			"ttl": 0 
+		},
+		{
 			"name": "wifi",
 			"ttl": 10000 
 		},
 		{
 			"name": "date",
-			"ttl": 1000 
+			"ttl": 10 
 		}
 	]
 }

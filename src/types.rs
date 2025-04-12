@@ -1,4 +1,4 @@
-
+use swayipc::{Connection, Node};
 use std::{collections::HashMap, fs::read_to_string};
 use chrono::{Datelike, Local, Timelike};
 use reqwest::Client;
@@ -48,6 +48,53 @@ fn month_abbr(n: u32) -> &'static str {
         12 => "Dec",
         _ => "???", // or "" or panic!("bad month")
     }
+}
+
+#[async_trait]
+pub trait MouseHandler: Send + Sync {
+    async fn click_handle(&self) -> StdResult<(), Box<dyn Error + Send + Sync >>;
+}
+
+#[derive(Clone)]
+pub struct VolumeClick; 
+
+#[async_trait]
+impl MouseHandler for VolumeClick {
+        
+    async fn click_handle(&self) -> StdResult<(), Box<dyn Error + Send + Sync>> {
+
+        Command::new("pavucontrol").output().await?;
+
+        Ok(())
+    }
+
+}
+
+#[derive(Clone)]
+pub struct WifiClick; 
+
+#[async_trait]
+impl MouseHandler for WifiClick {
+        
+    async fn click_handle(&self) -> StdResult<(), Box<dyn Error + Send + Sync>> {
+
+        Command::new("iwgtk").output().await?;
+
+        Ok(())
+    }
+
+}
+
+pub struct MouseNoop;
+
+#[async_trait]
+impl MouseHandler for MouseNoop {
+
+    async fn click_handle(&self) -> StdResult<(), Box<dyn Error + Send + Sync>> {
+
+        Ok(())
+    }
+
 }
 
 #[async_trait]
@@ -124,6 +171,52 @@ pub async fn get_inspirational_quote(api_key: &str, prompt: &str) -> Result<Stri
     Ok(quote.trim().to_string())
 }
 
+fn find_focused(node: &Node) -> Option<&Node> {
+    if node.focused {
+        return Some(node);
+    }
+    for child in &node.nodes {
+        if let Some(found) = find_focused(child) {
+            return Some(found);
+        }
+    }
+    for child in &node.floating_nodes {
+        if let Some(found) = find_focused(child) {
+            return Some(found);
+        }
+    }
+    None
+}
+#[derive(Clone)]
+pub struct CurrentProgram; 
+
+#[async_trait]
+impl Handler for CurrentProgram{
+    async fn handle(&self) -> StdResult<HashMap<String,String>, Box<dyn Error + Send + Sync >> {
+        let mut connection = Connection::new().expect("Failed to connect to sway");
+        let tree = connection.get_tree().expect("Failed to get tree");
+
+        let om = if let Some(focused) = find_focused(&tree) {
+            let app_id = focused.app_id.as_deref();
+            let class = focused.window_properties
+                .as_ref()
+                .and_then(|props| props.class.as_deref());
+            let name = app_id.or(class).unwrap_or("unknown");
+            let out_map :HashMap<String, String> = [("out", name)].iter().map(|(k,v)| (k.to_string(), v.to_string())).collect();
+            out_map
+
+        } else {
+            let out_map :HashMap<String, String> = [("out", "nothing")].iter().map(|(k,v)| (k.to_string(), v.to_string())).collect();
+            out_map
+        };
+
+        Ok(om)
+    }
+    fn render(&self, i : HashMap<String, String>) -> String {
+        format!("{}",i.get(&"out".to_string()).unwrap_or(&"nada".to_string()))
+    }
+}
+
 #[derive(Clone)]
 pub struct Quote;
 
@@ -139,7 +232,7 @@ impl Handler for Quote {
         let topic = topics.get(random_num).unwrap_or(&default_quote);
         let api_key = tokio::fs::read_to_string("/home/tombert/openai.key").await?;
         let api_key = api_key.trim();
-        let prompt = format!("Give me an inspirational quote about {} with a fictional author with a pun about {}", topic, topic);
+        let prompt = format!("Give me a short inspirational quote about {} with a fictional author with a pun about {}", topic, topic);
         let quote = get_inspirational_quote(api_key, prompt.as_str()).await?;
         let out_map: HashMap<String, String> = [("quote", quote)].iter().map(|(k,v)| (k.to_string(), v.to_string())).collect();
         Ok(out_map)
