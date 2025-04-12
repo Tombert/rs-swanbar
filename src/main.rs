@@ -46,21 +46,20 @@ fn get_mouse_handler(x : &str) -> Box<dyn MouseHandler> {
         "volume" => Box::new(types::VolumeClick),
         _ => Box::new(types::MouseNoop)
     }
-
 }
 
-async fn mouse_listener(mut chan : Sender<Box<dyn types::MouseHandler>>, reader: BufReader<Stdin>) {
+async fn mouse_listener(chan : Sender<Box<dyn types::MouseHandler>>, reader: BufReader<Stdin>) {
     let mut lines = reader.lines();
 
     tokio::task::spawn(async move {
-         while let Ok(Some(line)) = lines.next_line().await {
-             if let Ok(value) = serde_json::from_str::<Value>(&line){
-                 let instance = &value["instance"];
-                 let inst = instance.as_str().unwrap_or("");
-                 let h = get_mouse_handler(inst);
-                 let _ = chan.send(h).await;
-             }
-         }
+        while let Ok(Some(line)) = lines.next_line().await {
+            if let Ok(value) = serde_json::from_str::<Value>(&line){
+                let instance = &value["instance"];
+                let inst = instance.as_str().unwrap_or("");
+                let h = get_mouse_handler(inst);
+                let _ = chan.send(h).await;
+            }
+        }
     });
 
 }
@@ -129,8 +128,10 @@ async fn main() -> StdResult<(), Box<dyn Error>> {
         }
         let loop_begin = std::time::Instant::now();
 
-        
+
         let futs = config.modules.iter().map(|module_config| {
+            let timeout_ms = module_config.timeout.unwrap_or(config.default_timeout);
+            let timeout = Duration::from_millis(timeout_ms);
             let default = Meta {
                 is_processing : false,
                 start_time : Duration::ZERO,
@@ -196,64 +197,30 @@ async fn main() -> StdResult<(), Box<dyn Error>> {
                             data: temp.data,
                         }
                     },
-                    Some(Err(_)) => {
-                        let mut lock = futures.lock().unwrap();
-                        lock.insert(name.clone(), fut_opt.take().unwrap()); // now safe
-                        new_state.clone()
-                    }
-                    None => {
-                        let mut lock = futures.lock().unwrap();
-                        lock.insert(name.clone(), fut_opt.take().unwrap()); // now safe
-                        new_state.clone()
+                    _ => {
+                        let elapsed = now.checked_sub(new_state.start_time).unwrap_or(Duration::ZERO); 
+                        if new_state.is_processing {
+                            if elapsed < timeout {
+                                let mut lock = futures.lock().unwrap();
+                                lock.insert(name.clone(), fut_opt.take().unwrap()); // now safe
+                                new_state.clone()
+                            } else {
+                                Meta {
+                                    data: new_state.data.clone(),
+                                    is_processing: false,
+                                    start_time: Duration::ZERO
+                                }
+
+                            }
+
+                        } else {
+                            new_state.clone()
+
+                        }
+
                     }
                 };
 
-                // let r = fut.now_or_never();
-                // let new_new_state = if let Some(Ok(res)) = r {
-                //     let mut temp = new_state.clone();
-                //     temp.data.extend(res.clone());
-                //     let new_meta = Meta {
-                //         is_processing: false,
-                //         start_time: new_state.start_time, 
-                //         data: temp.data
-                //     };
-                //     new_meta
-                //
-                //
-                // } else {
-                //         let mut lock = futures.lock().unwrap();
-                //         lock.insert(name.clone(), fut);
-                //
-                //         new_state.clone()
-                //
-                // }
-                // let new_new_state = match tokio::select! {
-                //     res = &mut fut => Some(res),
-                //     else => None,
-                // } {
-                //     Some(Ok(data)) => {
-                //         let mut temp = new_state.clone();
-                //         temp.data.extend(data.clone());
-                //         let new_meta = Meta {
-                //             is_processing: false,
-                //             start_time: new_state.start_time, 
-                //             data: temp.data
-                //         };
-                //         new_meta
-                //     },
-                //     Some(Err(_)) => {
-                //         let mut lock = futures.lock().unwrap();
-                //         lock.insert(name.clone(), fut);
-                //
-                //         new_state.clone()
-                //     },
-                //     None => 
-                //     {
-                //         let mut lock = futures.lock().unwrap();
-                //         lock.insert(name.clone(), fut);
-                //         new_state.clone()
-                //     },
-                // };
 
 
                 let nnsd = new_new_state.clone().data;

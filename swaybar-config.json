@@ -8,7 +8,8 @@
 	"modules" : [
 		{
 			"name": "quote",
-			"ttl": 480000
+			"ttl": 480000,
+			"timeout": 2000
 		},
 		{
 			"name": "volume",

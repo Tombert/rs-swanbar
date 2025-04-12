@@ -430,13 +430,14 @@ pub struct PersistConfig  {
 #[derive(Serialize, Deserialize)]
 pub struct ModuleConfig {
    pub name: String,
-   pub ttl: u64
+   pub ttl: u64,
+   pub timeout: Option<u64>
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct Config {
    pub poll_time : u64,
-   pub default_timeout: i32, 
+   pub default_timeout: u64, 
    pub persist : PersistConfig, 
    pub modules : Vec<ModuleConfig>
 }
