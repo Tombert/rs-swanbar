@@ -48,11 +48,17 @@ fn get_mouse_handler(x : &str) -> Box<dyn MouseHandler> {
     }
 }
 
-async fn mouse_listener(chan : Sender<Box<dyn types::MouseHandler>>, reader: BufReader<Stdin>) {
+fn mouse_listener(chan : Sender<Box<dyn types::MouseHandler>>, reader: BufReader<Stdin>) {
     let mut lines = reader.lines();
 
     tokio::task::spawn(async move {
         while let Ok(Some(line)) = lines.next_line().await {
+            let line = if line.chars().nth(0).unwrap_or(' ') == ',' {
+                line.trim_start_matches(',').to_string()
+            } else {
+                line
+            };
+            //let line = line.trim_start_matches(',');
             if let Ok(value) = serde_json::from_str::<Value>(&line){
                 let instance = &value["instance"];
                 let inst = instance.as_str().unwrap_or("");
@@ -115,11 +121,11 @@ async fn main() -> StdResult<(), Box<dyn Error>> {
 
     let (state_sender, state_receiver) = tokio::sync::mpsc::channel::<HashMap<String,Meta>>(5);
 
-    let (mouse_sender, mut mouse_receiver) = tokio::sync::mpsc::channel::<Box<dyn types::MouseHandler>>(4);
+    let (mouse_sender, mut mouse_receiver) = tokio::sync::mpsc::channel::<Box<dyn types::MouseHandler>>(10);
     write_state(state_receiver, config.persist.path, config.persist.buffer_size).await;
     let futures = Arc::new(Mutex::new(HashMap::<String, JoinHandle<HashMap<String, String>>>::new()));
 
-    mouse_listener(mouse_sender, reader).await;
+    mouse_listener(mouse_sender, reader);
     loop {
         if let Some(Some(msg)) = mouse_receiver.recv().now_or_never() {
             tokio::spawn (async move {

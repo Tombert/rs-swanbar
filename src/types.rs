@@ -78,6 +78,7 @@ impl MouseHandler for WifiClick {
         
     async fn click_handle(&self) -> StdResult<(), Box<dyn Error + Send + Sync>> {
 
+        Command::new("pkill").arg("iwgtk").output().await?;
         Command::new("iwgtk").output().await?;
 
         Ok(())
