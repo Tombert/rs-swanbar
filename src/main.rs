@@ -1,7 +1,6 @@
 use tokio::io::{AsyncBufReadExt, BufReader, Stdin};
-use tokio::sync::mpsc::{channel, Sender, Receiver};
+use tokio::sync::mpsc::{Sender, Receiver};
 use tokio::task::JoinHandle;
-use std::sync::{Arc, Mutex};
 use serde_json::Value;
 use futures::FutureExt;
 use clap::Parser;
@@ -70,18 +69,18 @@ fn mouse_listener(chan : Sender<Box<dyn types::MouseHandler>>, reader: BufReader
 
 }
 
-async fn write_state(mut chan: Receiver<HashMap<String,Meta>>, out_path : String, buffer_size: i32) {
+fn write_state(mut chan: Receiver<HashMap<String,Meta>>, out_path : String, buffer_size: i32) {
     tokio::task::spawn(async move {
         let mut counter = 0; 
         while let Some(msg) = chan.recv().await {
             if counter % buffer_size == 0 {
                 let out_json = serde_json::to_string(&msg);
                 match out_json {
-                    Ok(x) => {write(out_path.as_str(), x);},
+                    Ok(x) => {let _ = write(out_path.as_str(), x);},
                     Err(_) => ()
                 };
             }
-            counter= (counter + 1) % buffer_size; 
+            counter = (counter + 1) % buffer_size; 
         }
 
     });
@@ -96,7 +95,7 @@ async fn write_state(mut chan: Receiver<HashMap<String,Meta>>, out_path : String
 pub struct Args {
 
     #[arg(short, long)]
-    pub config: Option<String>,
+    pub config: String,
 }
 
 
@@ -105,7 +104,7 @@ async fn main() -> StdResult<(), Box<dyn Error>> {
     let stdin = tokio::io::stdin(); // 
     let reader = BufReader::new(stdin);
     let args = Args::parse();
-    let path = args.config.unwrap_or("swaybar-config-new.json".to_string());
+    let path = args.config.to_string();
     let config_str = read_to_string(path)?;
     let config : types::Config =  serde_json::from_str(config_str.as_str())?;
     let init_state_str = match read_to_string(config.persist.path.to_string()) {
@@ -115,14 +114,13 @@ async fn main() -> StdResult<(), Box<dyn Error>> {
     let mut state : HashMap<String, Meta> = serde_json::from_str(init_state_str.as_str())?;
 
     let poll_time = Duration::from_millis(config.poll_time);
-    //let mut state : HashMap<String, types::Meta>= HashMap::new();
     let (render_sender, render_receiver) = tokio::sync::mpsc::channel::<Vec<types::Out>>(5);
     render(render_receiver).await;
 
     let (state_sender, state_receiver) = tokio::sync::mpsc::channel::<HashMap<String,Meta>>(5);
 
     let (mouse_sender, mut mouse_receiver) = tokio::sync::mpsc::channel::<Box<dyn types::MouseHandler>>(10);
-    write_state(state_receiver, config.persist.path, config.persist.buffer_size).await;
+    write_state(state_receiver, config.persist.path, config.persist.buffer_size);
     let mut futures = HashMap::<String, JoinHandle<HashMap<String, String>>>::new();
 
     mouse_listener(mouse_sender, reader);
@@ -137,7 +135,6 @@ async fn main() -> StdResult<(), Box<dyn Error>> {
 
         let futs = config.modules.iter().map(|module_config| {
             let timeout_ms = module_config.timeout.unwrap_or(10000);
-            //println!("Timeout: {}", timeout_ms);
             let timeout = Duration::from_millis(timeout_ms);
             let default = Meta {
                 is_processing : false,
@@ -150,18 +147,12 @@ async fn main() -> StdResult<(), Box<dyn Error>> {
             let ttl = Duration::from_millis(module_config.ttl);
             let name = module_config.name.clone();
 
-            //let futures = futures.clone();
             let old_fut = futures.remove(&name);
             async move {
                 let now = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
                     .expect("Time went backwards");
                 let expire_time = begin_state.start_time + ttl; 
-                // if name.clone() == "quote" {
-                //     println!("Start Time: {}", begin_state.start_time.as_millis());
-                //     println!("Elapsed Time: {}", expire_time.as_millis());
-                //
-                // }
                 let begin_data = begin_state.data.clone();
                 let (mut new_state, mut my_f)=  if !begin_state.is_processing && now > expire_time {
                     let fut = tokio::spawn(async move {
@@ -238,7 +229,6 @@ async fn main() -> StdResult<(), Box<dyn Error>> {
                     futures.insert(name.clone(), f);
                 }, 
                 None => ()
-
             }
 
             types::Out {
