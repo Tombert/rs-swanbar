@@ -114,7 +114,7 @@ async fn main() -> StdResult<(), Box<dyn Error>> {
     };
     let mut state : HashMap<String, Meta> = serde_json::from_str(init_state_str.as_str())?;
 
-    let poll_time_ms = Duration::from_millis(config.poll_time);
+    let poll_time = Duration::from_millis(config.poll_time);
     //let mut state : HashMap<String, types::Meta>= HashMap::new();
     let (render_sender, render_receiver) = tokio::sync::mpsc::channel::<Vec<types::Out>>(5);
     render(render_receiver).await;
@@ -244,7 +244,7 @@ async fn main() -> StdResult<(), Box<dyn Error>> {
         state_sender.send(state.clone()).await?;
 
         let elapsed = loop_begin.elapsed();
-        let wait_time = poll_time_ms.checked_sub(elapsed).unwrap_or(Duration::ZERO);
+        let wait_time = poll_time.checked_sub(elapsed).unwrap_or(Duration::ZERO);
         tokio::time::sleep(wait_time).await;
     }
 }
