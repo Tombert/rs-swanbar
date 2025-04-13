@@ -100,7 +100,7 @@ impl MouseHandler for MouseNoop {
 #[async_trait]
 pub trait Handler: Send + Sync {
     async fn handle(&self) -> StdResult<HashMap<String,String>, Box<dyn Error + Send + Sync >>;
-    fn render(&self, i: HashMap<String,String>)-> String; 
+    fn render(&self, i: &HashMap<String,String>)-> String; 
 }
 
 #[derive(Clone)]
@@ -113,7 +113,7 @@ impl Handler for Noop {
         out_hash.insert("".to_string(),"".to_string());
         Ok(out_hash)
     }
-    fn render(&self, i : HashMap<String, String>) -> String {
+    fn render(&self, i : &HashMap<String, String>) -> String {
         "".to_string()
     }
 }
@@ -212,7 +212,7 @@ impl Handler for CurrentProgram{
 
         Ok(om)
     }
-    fn render(&self, i : HashMap<String, String>) -> String {
+    fn render(&self, i : &HashMap<String, String>) -> String {
         format!("{}",i.get(&"out".to_string()).unwrap_or(&"nada".to_string()))
     }
 }
@@ -232,12 +232,12 @@ impl Handler for Quote {
         let topic = topics.get(random_num).unwrap_or(&default_quote);
         let api_key = tokio::fs::read_to_string("/home/tombert/openai.key").await?;
         let api_key = api_key.trim();
-        let prompt = format!("Give me a short inspirational quote about {} with a fictional author with a pun about {}", topic, topic);
+        let prompt = format!("Give me a very short inspirational quote about {} with a fictional author with a pun about {}", topic, topic);
         let quote = get_inspirational_quote(api_key, prompt.as_str()).await?;
         let out_map: HashMap<String, String> = [("quote", quote)].iter().map(|(k,v)| (k.to_string(), v.to_string())).collect();
         Ok(out_map)
     }
-    fn render(&self, i : HashMap<String, String>) -> String {
+    fn render(&self, i : &HashMap<String, String>) -> String {
         let error_text = "ERROR!".to_string();
         let quote = i.get(&"quote".to_string()).unwrap_or(&error_text);
         format!("{}", quote)
@@ -264,7 +264,7 @@ impl Handler for Battery {
         Ok(out_map) 
     }
 
-    fn render(&self, i : HashMap<String, String>) -> String {
+    fn render(&self, i : &HashMap<String, String>) -> String {
         let empty = "".to_string();
         let cap = i.get("capacity").unwrap_or(&empty);
         let stat = i.get("status").unwrap_or(&empty).as_str();
@@ -305,7 +305,7 @@ impl Handler for Wifi {
         Ok(out_map)
     }
 
-    fn render(&self, i : HashMap<String, String>) -> String {
+    fn render(&self, i : &HashMap<String, String>) -> String {
 
         let EMPTY = "".to_string();
         let connected = i.get("connect_status").unwrap_or(&EMPTY);
@@ -349,7 +349,7 @@ impl Handler for Volume {
         Ok(out_map)
     }
 
-    fn render(&self, i : HashMap<String, String>) -> String {
+    fn render(&self, i : &HashMap<String, String>) -> String {
         let default_muted = "default_muted".to_string();
         let is_muted = i.get("is_muted").unwrap_or(&default_muted);
         let small_speaker_cutoff = 40;
@@ -400,7 +400,7 @@ impl Handler for Date{
         Ok(out_hash)
     }
 
-    fn render(&self, i : HashMap<String, String>) -> String {
+    fn render(&self, i : &HashMap<String, String>) -> String {
         static EMPTY: String = String::new();
 
         let hour = i.get("hour").unwrap_or(&EMPTY);

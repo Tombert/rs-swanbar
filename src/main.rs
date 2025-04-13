@@ -135,8 +135,7 @@ async fn main() -> StdResult<(), Box<dyn Error>> {
             let default = Meta {
                 is_processing : false,
                 start_time : Duration::ZERO,
-                data: [("month", "BLAH")].iter().map(|(k,v)|(k.to_string(), v.to_string())).collect()
-
+                data: HashMap::new()
             };
             let begin_state = state.get(&module_config.name).unwrap_or(&default).clone();
             let handler1 = get_handler(module_config.name.as_str());
@@ -151,7 +150,7 @@ async fn main() -> StdResult<(), Box<dyn Error>> {
                     .expect("Time went backwards");
                 let expire_time = begin_state.start_time + ttl; 
                 let begin_data = begin_state.data.clone();
-                let  new_state =  if !begin_state.is_processing && now > expire_time {
+                let mut new_state =  if !begin_state.is_processing && now > expire_time {
                     let fut = tokio::spawn(async move {
                         let f = handler1.handle().await; 
                         match f {
@@ -163,7 +162,7 @@ async fn main() -> StdResult<(), Box<dyn Error>> {
                     let ns = Meta {
                         is_processing : true, 
                         start_time : now, 
-                        data : begin_state.data.clone()
+                        data : begin_state.data
                     };
                     let mut lock = futures.lock().unwrap();
                     lock.insert(name.clone(), fut);
@@ -179,7 +178,6 @@ async fn main() -> StdResult<(), Box<dyn Error>> {
                         handle
                     } else {
                         tokio::spawn(async { 
-                            //let out : HashMap<String, String>  = [].iter().map(|(k,v)|(k.to_string(), v.to_string())).collect();
                             HashMap::new()
                         })
                     }
@@ -189,12 +187,11 @@ async fn main() -> StdResult<(), Box<dyn Error>> {
                 let r = fut_opt.as_mut().unwrap().now_or_never();
                 let new_new_state = match r {
                     Some(Ok(res)) => {
-                        let mut temp = new_state.clone();
-                        temp.data.extend(res.clone());
+                        new_state.data.extend(res);
                         Meta {
                             is_processing: false,
                             start_time: new_state.start_time,
-                            data: temp.data,
+                            data: new_state.data,
                         }
                     },
                     _ => {
@@ -203,28 +200,27 @@ async fn main() -> StdResult<(), Box<dyn Error>> {
                             if elapsed < timeout {
                                 let mut lock = futures.lock().unwrap();
                                 lock.insert(name.clone(), fut_opt.take().unwrap()); // now safe
-                                new_state.clone()
+                                new_state
                             } else {
                                 Meta {
-                                    data: new_state.data.clone(),
+                                    data: new_state.data,
                                     is_processing: false,
                                     start_time: Duration::ZERO
                                 }
-
                             }
-
                         } else {
-                            new_state.clone()
+                            let mut lock = futures.lock().unwrap();
+                            lock.insert(name.clone(), fut_opt.take().unwrap()); // now safe
+                            new_state
 
                         }
 
                     }
                 };
 
+                let out = handler2.render(&new_new_state.data);
 
-
-                let nnsd = new_new_state.clone().data;
-                (name.to_string(), new_new_state, handler2.render(nnsd))
+                (name.to_string(), new_new_state, out)
             }});
 
         let values = join_all(futs).await; 
