@@ -163,7 +163,7 @@ async fn main() -> StdResult<(), Box<dyn Error>> {
                 //
                 // }
                 let begin_data = begin_state.data.clone();
-                let (new_state, mut my_f)=  if !begin_state.is_processing && now > expire_time {
+                let (mut new_state, mut my_f)=  if !begin_state.is_processing && now > expire_time {
                     let fut = tokio::spawn(async move {
                         let f = handler1.handle().await; 
                         match f {
@@ -187,12 +187,12 @@ async fn main() -> StdResult<(), Box<dyn Error>> {
 
                 let (new_new_state, new_fut) = match my_f.as_mut().and_then(|f| f.now_or_never()) {
                     Some(Ok(res)) => {
-                        let mut temp = new_state.clone();
-                        temp.data.extend(res);
+                        //let mut temp = new_state.clone();
+                        new_state.data.extend(res);
                         let ns = Meta {
                             is_processing: false,
-                            start_time: temp.start_time, 
-                            data: temp.data,
+                            start_time: new_state.start_time, 
+                            data: new_state.data,
                         };
                         (ns, None)
                     },
@@ -200,10 +200,10 @@ async fn main() -> StdResult<(), Box<dyn Error>> {
                         let elapsed = now.checked_sub(new_state.start_time).unwrap_or(Duration::ZERO); 
                         if new_state.is_processing {
                             if elapsed < timeout {
-                                (new_state.clone(), my_f)
+                                (new_state, my_f)
                             } else {
                                 let ns = Meta {
-                                    data: new_state.clone().data,
+                                    data: new_state.data,
                                     is_processing: false,
                                     start_time: Duration::ZERO
                                 };
