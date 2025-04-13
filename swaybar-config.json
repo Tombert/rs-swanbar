@@ -2,10 +2,15 @@
 	"poll_time" : 100,
 	"default_timeout": 1000,
 	"persist": {
-		"path": "/home/tombert/.config/sway/persist6.json",
-		"buffer_size": 1000
+		"path": "/home/tombert/.config/sway/persist7.json",
+		"buffer_size": 100
 	},
 	"modules" : [
+		{
+			"name":"bgchange",
+			"ttl": 60000,
+			"display": false
+		},
 		{
 			"name": "quote",
 			"ttl": 480000,
@@ -17,7 +22,9 @@
 		},
 		{
 			"name": "current",
-			"ttl": 0 
+			"ttl": 0,
+			"display": true 
+
 		},
 		{
 			"name": "wifi",

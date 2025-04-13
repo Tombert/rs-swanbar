@@ -20,6 +20,7 @@ fn get_handler(my_type: &str) -> Box<dyn types::Handler> {
         "volume" => Box::new(types::Volume),
         "quote" => Box::new(types::Quote),
         "current" => Box::new(types::CurrentProgram),
+        "bgchange" => Box::new(types::BgChanger),
         _ => Box::new(types::Noop)
     }
 }
@@ -146,6 +147,7 @@ async fn main() -> StdResult<(), Box<dyn Error>> {
             let handler2 = get_handler(module_config.name.as_str());
             let ttl = Duration::from_millis(module_config.ttl);
             let name = module_config.name.clone();
+            let display = module_config.display.unwrap_or(true);
 
             let old_fut = futures.remove(&name);
             async move {
@@ -203,8 +205,6 @@ async fn main() -> StdResult<(), Box<dyn Error>> {
                                 match my_f {
                                     Some(x) => x.abort(),
                                     None => ()
-
-
                                 }
                                 (ns, None)
                             }
@@ -217,12 +217,12 @@ async fn main() -> StdResult<(), Box<dyn Error>> {
 
                 let out = handler2.render(&new_new_state.data);
 
-                (name.to_string(), new_new_state, out, new_fut)
+                (name.to_string(), new_new_state, out, new_fut, display)
             }});
 
         let values = join_all(futs).await; 
 
-        let out_objs: Vec<types::Out> = values.into_iter().map(|(name, meta, out_str,new_fut)|{
+        let out_objs: Vec<types::Out> = values.into_iter().filter_map(|(name, meta, out_str,new_fut, display)|{
             state.insert(name.clone(), meta.clone());
             match new_fut {
                 Some(f) => {
@@ -231,10 +231,14 @@ async fn main() -> StdResult<(), Box<dyn Error>> {
                 None => ()
             }
 
-            types::Out {
-                name: name.clone(),
-                instance: name.clone(),
-                full_text: out_str.to_string()
+            if display {
+                Some(types::Out {
+                    name: name.clone(),
+                    instance: name.clone(),
+                    full_text: out_str.to_string()
+                })
+            } else {
+                None
             }
         }).collect();
 

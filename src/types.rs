@@ -1,9 +1,12 @@
 use swayipc::{Connection, Node};
-use std::{collections::HashMap, fs::read_to_string};
+use std::collections::HashMap;
 use chrono::{Datelike, Local, Timelike};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use tokio::process::Command;
+use tokio::fs;
+use tokio_stream::wrappers::ReadDirStream;
+use tokio_stream::StreamExt;
 use rand::rngs::StdRng;
 use rand::Rng;
 use rand::SeedableRng;
@@ -104,6 +107,50 @@ pub trait Handler: Send + Sync {
     fn render(&self, i: &HashMap<String,String>)-> String; 
 }
 
+
+#[derive(Clone)]
+pub struct BgChanger;
+
+#[async_trait]
+impl Handler for BgChanger {
+    async fn handle(&self) -> StdResult<HashMap<String,String>, Box<dyn Error + Send + Sync >> {
+        let mut entries = ReadDirStream::new(fs::read_dir("/home/tombert/wallpapers/").await?);
+        let mut files = Vec::new();
+
+        while let Some(entry) = entries.next().await {
+            let entry = entry?;
+            let file_name = entry.file_name();
+            let file_name_str = file_name.to_string_lossy();
+            if file_name_str.ends_with(".jpg") || file_name_str.ends_with(".jpeg") || file_name_str.ends_with(".png") {
+                files.push(file_name);
+            }
+        }
+
+        let mut rng = StdRng::from_entropy();
+        let random_num = rng.gen_range(0..files.len());
+        let image = files[random_num].to_string_lossy().to_string();
+        let image = format!("/home/tombert/wallpapers/{}", image);
+        Command::new("pkill").arg("swaybg").output().await?;
+        tokio::spawn(async {
+            let _ = Command::new("swaybg")
+                .arg("-i")
+                .arg(image)
+                .arg("-m")
+                .arg("stretch")
+                .output()
+                .await;
+        });
+
+        let mut out_hash = HashMap::new();
+        out_hash.insert("".to_string(),"".to_string());
+        Ok(out_hash)
+    }
+    fn render(&self, _i : &HashMap<String, String>) -> String {
+        "".to_string()
+    }
+}
+
+
 #[derive(Clone)]
 pub struct Noop;
 
@@ -114,7 +161,7 @@ impl Handler for Noop {
         out_hash.insert("".to_string(),"".to_string());
         Ok(out_hash)
     }
-    fn render(&self, i : &HashMap<String, String>) -> String {
+    fn render(&self, _i : &HashMap<String, String>) -> String {
         "".to_string()
     }
 }
@@ -308,8 +355,8 @@ impl Handler for Wifi {
 
     fn render(&self, i : &HashMap<String, String>) -> String {
 
-        let EMPTY = "".to_string();
-        let connected = i.get("connect_status").unwrap_or(&EMPTY);
+        let empty = "".to_string();
+        let connected = i.get("connect_status").unwrap_or(&empty);
         format!("{}", wifi_status_icons(&connected))
     }
 }
@@ -432,7 +479,9 @@ pub struct PersistConfig  {
 pub struct ModuleConfig {
    pub name: String,
    pub ttl: u64,
-   pub timeout: Option<u64>
+   pub timeout: Option<u64>,
+   pub display: Option<bool>
+       
 }
 
 #[derive(Serialize, Deserialize)]
