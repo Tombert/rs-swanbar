@@ -215,14 +215,19 @@ async fn main() -> StdResult<(), Box<dyn Error>> {
                     }
                 };
 
-                let out = handler2.render(&new_new_state.data);
+                let out = if display {
+                    Some(handler2.render(&new_new_state.data))
+                } else {
+                    None
+                };
+                //let out = handler2.render(&new_new_state.data);
 
-                (name.to_string(), new_new_state, out, new_fut, display)
+                (name.to_string(), new_new_state, out, new_fut)
             }});
 
         let values = join_all(futs).await; 
 
-        let out_objs: Vec<types::Out> = values.into_iter().filter_map(|(name, meta, out_str,new_fut, display)|{
+        let out_objs: Vec<types::Out> = values.into_iter().filter_map(|(name, meta, out_str,new_fut)|{
             state.insert(name.clone(), meta.clone());
             match new_fut {
                 Some(f) => {
@@ -231,14 +236,15 @@ async fn main() -> StdResult<(), Box<dyn Error>> {
                 None => ()
             }
 
-            if display {
-                Some(types::Out {
-                    name: name.clone(),
-                    instance: name.clone(),
-                    full_text: out_str.to_string()
-                })
-            } else {
-                None
+            match out_str {
+                Some (out_str) => {
+                    Some(types::Out {
+                        name: name.clone(),
+                        instance: name.clone(),
+                        full_text: out_str.to_string()
+                    })
+                },
+                None => None
             }
         }).collect();
 
