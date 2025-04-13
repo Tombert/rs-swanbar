@@ -123,7 +123,7 @@ async fn main() -> StdResult<(), Box<dyn Error>> {
 
     let (mouse_sender, mut mouse_receiver) = tokio::sync::mpsc::channel::<Box<dyn types::MouseHandler>>(10);
     write_state(state_receiver, config.persist.path, config.persist.buffer_size).await;
-    let futures = Arc::new(Mutex::new(HashMap::<String, JoinHandle<HashMap<String, String>>>::new()));
+    let mut futures = HashMap::<String, JoinHandle<HashMap<String, String>>>::new();
 
     mouse_listener(mouse_sender, reader);
     loop {
@@ -136,7 +136,8 @@ async fn main() -> StdResult<(), Box<dyn Error>> {
 
 
         let futs = config.modules.iter().map(|module_config| {
-            let timeout_ms = module_config.timeout.unwrap_or(config.default_timeout);
+            let timeout_ms = module_config.timeout.unwrap_or(10000);
+            //println!("Timeout: {}", timeout_ms);
             let timeout = Duration::from_millis(timeout_ms);
             let default = Meta {
                 is_processing : false,
@@ -149,14 +150,20 @@ async fn main() -> StdResult<(), Box<dyn Error>> {
             let ttl = Duration::from_millis(module_config.ttl);
             let name = module_config.name.clone();
 
-            let futures = futures.clone();
+            //let futures = futures.clone();
+            let old_fut = futures.remove(&name);
             async move {
                 let now = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
                     .expect("Time went backwards");
                 let expire_time = begin_state.start_time + ttl; 
+                // if name.clone() == "quote" {
+                //     println!("Start Time: {}", begin_state.start_time.as_millis());
+                //     println!("Elapsed Time: {}", expire_time.as_millis());
+                //
+                // }
                 let begin_data = begin_state.data.clone();
-                let mut new_state =  if !begin_state.is_processing && now > expire_time {
+                let (new_state, mut my_f)=  if !begin_state.is_processing && now > expire_time {
                     let fut = tokio::spawn(async move {
                         let f = handler1.handle().await; 
                         match f {
@@ -170,69 +177,62 @@ async fn main() -> StdResult<(), Box<dyn Error>> {
                         start_time : now, 
                         data : begin_state.data
                     };
-                    let mut lock = futures.lock().unwrap();
-                    lock.insert(name.clone(), fut);
-                    ns
+                    // let mut lock = futures.lock().unwrap();
+                    // lock.insert(name.clone(), fut);
+                    (ns, Some(fut))
 
                 } else {
-                    begin_state
+                    (begin_state, old_fut)
                 };
 
-                let fut = {
-                    let mut lock = futures.lock().unwrap();
-                    if let Some(handle) = lock.remove(&name) {
-                        handle
-                    } else {
-                        tokio::spawn(async { 
-                            HashMap::new()
-                        })
-                    }
-                };
-                let mut fut_opt = Some(fut); 
-
-                let r = fut_opt.as_mut().unwrap().now_or_never();
-                let new_new_state = match r {
+                let (new_new_state, new_fut) = match my_f.as_mut().and_then(|f| f.now_or_never()) {
                     Some(Ok(res)) => {
-                        new_state.data.extend(res);
-                        Meta {
+                        let mut temp = new_state.clone();
+                        temp.data.extend(res);
+                        let ns = Meta {
                             is_processing: false,
-                            start_time: new_state.start_time,
-                            data: new_state.data,
-                        }
+                            start_time: temp.start_time, 
+                            data: temp.data,
+                        };
+                        (ns, None)
                     },
                     _ => {
                         let elapsed = now.checked_sub(new_state.start_time).unwrap_or(Duration::ZERO); 
                         if new_state.is_processing {
                             if elapsed < timeout {
-                                let mut lock = futures.lock().unwrap();
-                                lock.insert(name.clone(), fut_opt.take().unwrap()); // now safe
-                                new_state
+                                (new_state.clone(), my_f)
                             } else {
-                                Meta {
-                                    data: new_state.data,
+                                let ns = Meta {
+                                    data: new_state.clone().data,
                                     is_processing: false,
                                     start_time: Duration::ZERO
-                                }
+                                };
+                                (ns, my_f)
                             }
+
                         } else {
-                            let mut lock = futures.lock().unwrap();
-                            lock.insert(name.clone(), fut_opt.take().unwrap()); // now safe
-                            new_state
-
+                            (new_state.clone(), my_f)
                         }
-
                     }
                 };
 
                 let out = handler2.render(&new_new_state.data);
 
-                (name.to_string(), new_new_state, out)
+                (name.to_string(), new_new_state, out, new_fut)
             }});
 
         let values = join_all(futs).await; 
 
-        let out_objs: Vec<types::Out> = values.into_iter().map(|(name, meta, out_str)|{
+        let out_objs: Vec<types::Out> = values.into_iter().map(|(name, meta, out_str,new_fut)|{
             state.insert(name.clone(), meta.clone());
+            match new_fut {
+                Some(f) => {
+                    futures.insert(name.clone(), f);
+                }, 
+                None => ()
+
+            }
+
             types::Out {
                 name: name.clone(),
                 instance: name.clone(),

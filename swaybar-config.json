@@ -1,6 +1,6 @@
 {
 	"poll_time" : 100,
-	"default_timeout": 100,
+	"default_timeout": 1000,
 	"persist": {
 		"path": "/home/tombert/.config/sway/persist6.json",
 		"buffer_size": 1000
@@ -9,7 +9,7 @@
 		{
 			"name": "quote",
 			"ttl": 480000,
-			"timeout": 2000
+			"timeout": 1000
 		},
 		{
 			"name": "volume",
