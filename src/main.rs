@@ -172,13 +172,15 @@ async fn main() -> StdResult<(), Box<dyn Error>> {
                         }
                     });
 
+                    match old_fut {
+                        Some(f) => f.abort(),
+                        None => ()
+                    }
                     let ns = Meta {
                         is_processing : true, 
                         start_time : now, 
                         data : begin_state.data
                     };
-                    // let mut lock = futures.lock().unwrap();
-                    // lock.insert(name.clone(), fut);
                     (ns, Some(fut))
 
                 } else {
@@ -207,7 +209,13 @@ async fn main() -> StdResult<(), Box<dyn Error>> {
                                     is_processing: false,
                                     start_time: Duration::ZERO
                                 };
-                                (ns, my_f)
+                                match my_f {
+                                    Some(x) => x.abort(),
+                                    None => ()
+
+
+                                }
+                                (ns, None)
                             }
 
                         } else {
