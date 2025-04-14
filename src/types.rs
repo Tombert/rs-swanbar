@@ -6,7 +6,6 @@ use std::future::Future;
 use std::pin::Pin;
 use std::result::Result as StdResult;
 use std::time::Duration;
-use tokio::process::Command;
 
 pub type BoxedHandler = fn() -> Pin<
     Box<
@@ -14,6 +13,15 @@ pub type BoxedHandler = fn() -> Pin<
             + Send,
     >,
 >;
+
+pub type MouseBoxedHandler = fn() -> Pin<
+    Box<
+        dyn Future<Output = StdResult<(), Box<dyn Error + Send + Sync>>>
+            + Send,
+    >,
+>;
+
+
 pub type RenderFn = fn(&HashMap<String, String>) -> String;
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -23,29 +31,23 @@ pub struct Meta {
     pub data: HashMap<String, String>,
 }
 
-#[async_trait]
-pub trait MouseHandler: Send + Sync {
-    async fn click_handle(&self) -> StdResult<(), Box<dyn Error + Send + Sync>>;
-}
+pub mod volume_click {
 
-#[derive(Clone)]
-pub struct VolumeClick;
-
-#[async_trait]
-impl MouseHandler for VolumeClick {
-    async fn click_handle(&self) -> StdResult<(), Box<dyn Error + Send + Sync>> {
+    use std::error::Error;
+    use std::result::Result as StdResult;
+    use tokio::process::Command;
+    pub async fn click_handle() -> StdResult<(), Box<dyn Error + Send + Sync>> {
         Command::new("pavucontrol").output().await?;
-
         Ok(())
     }
 }
 
-#[derive(Clone)]
-pub struct WifiClick;
+pub mod wifi_click {
 
-#[async_trait]
-impl MouseHandler for WifiClick {
-    async fn click_handle(&self) -> StdResult<(), Box<dyn Error + Send + Sync>> {
+    use std::error::Error;
+    use std::result::Result as StdResult;
+    use tokio::process::Command;
+    pub async fn click_handle() -> StdResult<(), Box<dyn Error + Send + Sync>> {
         Command::new("pkill").arg("iwgtk").output().await?;
         Command::new("iwgtk").output().await?;
 
@@ -53,17 +55,17 @@ impl MouseHandler for WifiClick {
     }
 }
 
-pub struct MouseNoop;
+//pub struct MouseNoop;
 
-#[async_trait]
-impl MouseHandler for MouseNoop {
-    async fn click_handle(&self) -> StdResult<(), Box<dyn Error + Send + Sync>> {
+pub mod mouse_noop {
+    use std::result::Result as StdResult;
+    use std::error::Error;
+    pub async fn click_handle() -> StdResult<(), Box<dyn Error + Send + Sync>> {
         Ok(())
     }
 }
 
 pub mod bg_changer {
-
     use rand::Rng;
     use rand::SeedableRng;
     use rand::rngs::StdRng;

@@ -12,7 +12,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::result::Result as StdResult;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use types::{Meta, MouseHandler};
+use types::Meta;
 
 macro_rules! boxed_handler {
     ($path:path) => {
@@ -56,15 +56,15 @@ async fn render(mut chan: Receiver<Vec<types::Out>>) {
     });
 }
 
-fn get_mouse_handler(x: &str) -> Box<dyn MouseHandler> {
+fn get_mouse_handler(x: &str) -> types::MouseBoxedHandler {
     match x {
-        "wifi" => Box::new(types::WifiClick),
-        "volume" => Box::new(types::VolumeClick),
-        _ => Box::new(types::MouseNoop),
+        "wifi" => boxed_handler!(types::wifi_click::click_handle),
+        "volume" => boxed_handler!(types::volume_click::click_handle),
+        _ => boxed_handler!(types::mouse_noop::click_handle)
     }
 }
 
-fn mouse_listener(chan: Sender<Box<dyn types::MouseHandler>>, reader: BufReader<Stdin>) {
+fn mouse_listener(chan: Sender<types::MouseBoxedHandler>, reader: BufReader<Stdin>) {
     let mut lines = reader.lines();
 
     tokio::task::spawn(async move {
@@ -134,7 +134,7 @@ async fn main() -> StdResult<(), Box<dyn Error>> {
     let (state_sender, state_receiver) = tokio::sync::mpsc::channel::<HashMap<String, Meta>>(5);
 
     let (mouse_sender, mut mouse_receiver) =
-        tokio::sync::mpsc::channel::<Box<dyn types::MouseHandler>>(10);
+        tokio::sync::mpsc::channel::<types::MouseBoxedHandler>(10);
     write_state(
         state_receiver,
         config.persist.path,
@@ -144,9 +144,9 @@ async fn main() -> StdResult<(), Box<dyn Error>> {
 
     mouse_listener(mouse_sender, reader);
     loop {
-        if let Some(Some(msg)) = mouse_receiver.recv().now_or_never() {
+        if let Some(Some(mouse_handle)) = mouse_receiver.recv().now_or_never() {
             tokio::spawn(async move {
-                let _ = msg.click_handle().await;
+                let _ = mouse_handle().await;
             });
         }
         let loop_begin = std::time::Instant::now();
