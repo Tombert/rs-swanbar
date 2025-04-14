@@ -145,7 +145,7 @@ async fn main() -> StdResult<(), Box<dyn Error>> {
 
     let (mouse_sender, mut mouse_receiver) = tokio::sync::mpsc::channel::<Box<dyn types::MouseHandler>>(10);
     write_state(state_receiver, config.persist.path, config.persist.buffer_size);
-    let mut futures = HashMap::<String, JoinHandle<HashMap<String, String>>>::new();
+    let mut futures = HashMap::<String, JoinHandle<Option<HashMap<String, String>>>>::new();
 
     mouse_listener(mouse_sender, reader);
     loop {
@@ -155,9 +155,9 @@ async fn main() -> StdResult<(), Box<dyn Error>> {
             });
         }
         let loop_begin = std::time::Instant::now();
+        let mut futs = Vec::new();
 
-
-        let futs = config.modules.iter().map(|module_config| {
+        for module_config in &config.modules {
             let timeout_ms = module_config.timeout.unwrap_or(10000);
             let timeout = Duration::from_millis(timeout_ms);
             let default = Meta {
@@ -165,74 +165,84 @@ async fn main() -> StdResult<(), Box<dyn Error>> {
                 start_time : Duration::ZERO,
                 data: HashMap::new()
             };
-            let begin_state = state.get(&module_config.name).unwrap_or(&default).clone();
-            let handler1 = get_handler(module_config.name.as_str());
-            let handler2 = get_handler(module_config.name.as_str());
+            let mut state = state.get(&module_config.name).unwrap_or(&default).clone() ;
             let ttl = Duration::from_millis(module_config.ttl);
             let name = module_config.name.clone();
             let display = module_config.display.unwrap_or(true);
 
             let old_fut = futures.remove(&name);
-            async move {
+            
+            let fin = async move {
+                let name = name.as_str();
+                let handler1 = get_handler(name);
+                let handler2 = get_handler(name);
                 let now = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
                     .expect("Time went backwards");
-                let expire_time = begin_state.start_time + ttl; 
-                let begin_data = begin_state.data.clone();
-                let (mut new_state, mut my_f) =  if !begin_state.is_processing && now > expire_time {
-                    schedule_job(handler1, begin_data, old_fut, now)
+                let expire_time = state.start_time + ttl; 
+                let mut my_f = if !state.is_processing && now > expire_time {
+
+                    let fut = tokio::spawn(async move {
+                        let f = handler1.handle().await; 
+                        match f {
+                            Ok(ff) => Some(ff),
+                            Err(_) => None
+                        }
+                    });
+                    state.is_processing = true; 
+                    state.start_time = now;
+                    Some(fut)
                 } else {
-                    (begin_state, old_fut)
+                    old_fut
                 };
 
-                let (new_new_state, new_fut) = match my_f.as_mut().and_then(|f| f.now_or_never()) {
+                let new_fut = match my_f.as_mut().and_then(|f| f.now_or_never()) {
                     Some(Ok(res)) => {
                         //let mut temp = new_state.clone();
-                        new_state.data.extend(res);
-                        let ns = Meta {
-                            is_processing: false,
-                            start_time: new_state.start_time, 
-                            data: new_state.data,
-                        };
-                        (ns, None)
+                        if let Some(res) = res {
+                            state.data.extend(res);
+                            state.is_processing = false; 
+                        }
+                        None
                     },
                     _ => {
-                        let elapsed = now.checked_sub(new_state.start_time).unwrap_or(Duration::ZERO); 
-                        if new_state.is_processing {
+                        let elapsed = now.checked_sub(state.start_time).unwrap_or(Duration::ZERO); 
+                        if state.is_processing {
                             if elapsed < timeout {
-                                (new_state, my_f)
+                                my_f
                             } else {
-                                let ns = Meta {
-                                    data: new_state.data,
-                                    is_processing: false,
-                                    start_time: Duration::ZERO
-                                };
+                                state.is_processing = false; 
+                                state.start_time = Duration::ZERO;
+
                                 match my_f {
                                     Some(x) => x.abort(),
                                     None => ()
                                 }
-                                (ns, None)
+                                None
                             }
 
                         } else {
-                            (new_state.clone(), my_f)
+                            my_f
                         }
                     }
                 };
 
                 let out = if display {
-                    Some(handler2.render(&new_new_state.data))
+                    Some(handler2.render(&state.data))
                 } else {
                     None
                 };
-                //let out = handler2.render(&new_new_state.data);
 
-                (name.to_string(), new_new_state, out, new_fut)
-            }});
+                (name.to_string(), state, out, new_fut)
+
+            };
+            futs.push(fin);
+        }
+
 
         let values = join_all(futs).await; 
 
-        let out_objs: Vec<types::Out> = values.into_iter().filter_map(|(name, meta, out_str,new_fut)|{
+        let out_objs: Vec<types::Out> = values.into_iter().filter_map(|(name, meta, out_str, new_fut)|{
             state.insert(name.clone(), meta.clone());
             if let Some(f) = new_fut {
                 futures.insert(name.clone(), f);
