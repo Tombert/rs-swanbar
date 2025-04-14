@@ -60,7 +60,7 @@ fn get_mouse_handler(x: &str) -> types::MouseBoxedHandler {
     match x {
         "wifi" => boxed_handler!(types::wifi_click::click_handle),
         "volume" => boxed_handler!(types::volume_click::click_handle),
-        _ => boxed_handler!(types::mouse_noop::click_handle)
+        _ => boxed_handler!(types::mouse_noop::click_handle),
     }
 }
 

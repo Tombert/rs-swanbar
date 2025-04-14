@@ -13,13 +13,8 @@ pub type BoxedHandler = fn() -> Pin<
     >,
 >;
 
-pub type MouseBoxedHandler = fn() -> Pin<
-    Box<
-        dyn Future<Output = StdResult<(), Box<dyn Error + Send + Sync>>>
-            + Send,
-    >,
->;
-
+pub type MouseBoxedHandler =
+    fn() -> Pin<Box<dyn Future<Output = StdResult<(), Box<dyn Error + Send + Sync>>> + Send>>;
 
 pub type RenderFn = fn(&HashMap<String, String>) -> String;
 
@@ -57,8 +52,8 @@ pub mod wifi_click {
 //pub struct MouseNoop;
 
 pub mod mouse_noop {
-    use std::result::Result as StdResult;
     use std::error::Error;
+    use std::result::Result as StdResult;
     pub async fn click_handle() -> StdResult<(), Box<dyn Error + Send + Sync>> {
         Ok(())
     }
