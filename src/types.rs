@@ -1,20 +1,16 @@
 use async_trait::async_trait;
-use chrono::{Datelike, Local, Timelike};
-use rand::Rng;
-use rand::SeedableRng;
-use rand::rngs::StdRng;
-use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::error::Error;
+use std::future::Future;
+use std::pin::Pin;
 use std::result::Result as StdResult;
-use swayipc::{Connection, Node};
-use tokio::fs;
 use tokio::process::Command;
-use tokio_stream::StreamExt;
-use tokio_stream::wrappers::ReadDirStream;
-
 use std::time::Duration;
+
+pub type BoxedHandler =
+    fn() -> Pin<Box<dyn Future<Output = StdResult<HashMap<String, String>, Box<dyn Error + Send + Sync>>> + Send>>;
+pub type RenderFn = fn(&HashMap<String, String>) -> String;
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Meta {
@@ -23,31 +19,7 @@ pub struct Meta {
     pub data: HashMap<String, String>,
 }
 
-fn wifi_status_icons(n: &str) -> &'static str {
-    match n {
-        "connected" => "📶",
-        "disconnected" => "❌",
-        _ => "",
-    }
-}
 
-fn month_abbr(n: u32) -> &'static str {
-    match n {
-        1 => "Jan",
-        2 => "Feb",
-        3 => "Mar",
-        4 => "Apr",
-        5 => "May",
-        6 => "Jun",
-        7 => "Jul",
-        8 => "Aug",
-        9 => "Sep",
-        10 => "Oct",
-        11 => "Nov",
-        12 => "Dec",
-        _ => "???", // or "" or panic!("bad month")
-    }
-}
 
 #[async_trait]
 pub trait MouseHandler: Send + Sync {
@@ -88,18 +60,20 @@ impl MouseHandler for MouseNoop {
     }
 }
 
-#[async_trait]
-pub trait Handler: Send + Sync {
-    async fn handle(&self) -> StdResult<HashMap<String, String>, Box<dyn Error + Send + Sync>>;
-    fn render(&self, i: &HashMap<String, String>) -> String;
-}
 
-#[derive(Clone)]
-pub struct BgChanger;
+pub mod bg_changer {
 
-#[async_trait]
-impl Handler for BgChanger {
-    async fn handle(&self) -> StdResult<HashMap<String, String>, Box<dyn Error + Send + Sync>> {
+    use rand::Rng;
+    use rand::SeedableRng;
+    use rand::rngs::StdRng;
+    use tokio::process::Command;
+    use tokio_stream::wrappers::ReadDirStream;
+    use std::result::Result as StdResult;
+    use std::collections::HashMap;
+    use tokio::fs;
+    use std::error::Error;
+    use tokio_stream::StreamExt;
+    pub async fn handle() -> StdResult<HashMap<String, String>, Box<dyn Error + Send + Sync>> {
         let mut entries = ReadDirStream::new(fs::read_dir("/home/tombert/wallpapers/").await?);
         let mut files = Vec::new();
 
@@ -109,7 +83,7 @@ impl Handler for BgChanger {
             let file_name_str = file_name.to_string_lossy();
             if file_name_str.ends_with(".jpg")
                 || file_name_str.ends_with(".jpeg")
-                || file_name_str.ends_with(".png")
+                    || file_name_str.ends_with(".png")
             {
                 files.push(file_name);
             }
@@ -128,108 +102,60 @@ impl Handler for BgChanger {
                 .arg("stretch")
                 .output()
                 .await;
-        });
+            });
 
         let mut out_hash = HashMap::new();
         out_hash.insert("".to_string(), "".to_string());
         Ok(out_hash)
     }
-    fn render(&self, _i: &HashMap<String, String>) -> String {
+    pub fn render(_i: &HashMap<String, String>) -> String {
         "".to_string()
     }
 }
 
-#[derive(Clone)]
-pub struct Noop;
+pub mod noop {
 
-#[async_trait]
-impl Handler for Noop {
-    async fn handle(&self) -> StdResult<HashMap<String, String>, Box<dyn Error + Send + Sync>> {
+    use std::collections::HashMap;
+    use std::error::Error;
+    use std::result::Result as StdResult;
+
+
+    pub async fn handle() -> StdResult<HashMap<String, String>, Box<dyn Error + Send + Sync>> {
         let mut out_hash = HashMap::new();
         out_hash.insert("".to_string(), "".to_string());
         Ok(out_hash)
     }
-    fn render(&self, _i: &HashMap<String, String>) -> String {
+    pub fn render(_i: &HashMap<String, String>) -> String {
         "".to_string()
     }
 }
 
-#[derive(Serialize)]
-struct Message {
-    role: String,
-    content: String,
-}
 
-#[derive(Serialize)]
-struct ChatRequest {
-    model: String,
-    messages: Vec<Message>,
-}
+pub mod current_program {
+    use std::collections::HashMap;
+    use std::error::Error;
+    use std::result::Result as StdResult;
+    use swayipc::{Connection, Node};
 
-#[derive(Deserialize)]
-struct Choice {
-    message: MessageContent,
-}
-
-#[derive(Deserialize)]
-struct MessageContent {
-    content: String,
-}
-
-#[derive(Deserialize)]
-struct ChatResponse {
-    choices: Vec<Choice>,
-}
-
-pub async fn get_inspirational_quote(
-    api_key: &str,
-    prompt: &str,
-) -> Result<String, Box<dyn Error + Send + Sync>> {
-    let client = Client::new();
-
-    let body = ChatRequest {
-        model: "gpt-3.5-turbo".to_string(),
-        messages: vec![Message {
-            role: "user".to_string(),
-            content: prompt.to_string(),
-        }],
-    };
-
-    let res = client
-        .post("https://api.openai.com/v1/chat/completions")
-        .bearer_auth(api_key)
-        .json(&body)
-        .send()
-        .await?;
-
-    let data: ChatResponse = res.json().await?;
-    let quote = &data.choices.get(0).unwrap().message.content;
-
-    Ok(quote.trim().to_string())
-}
-
-fn find_focused(node: &Node) -> Option<&Node> {
-    if node.focused {
-        return Some(node);
-    }
-    for child in &node.nodes {
-        if let Some(found) = find_focused(child) {
-            return Some(found);
+    fn find_focused(node: &Node) -> Option<&Node> {
+        if node.focused {
+            return Some(node);
         }
-    }
-    for child in &node.floating_nodes {
-        if let Some(found) = find_focused(child) {
-            return Some(found);
+        for child in &node.nodes {
+            if let Some(found) = find_focused(child) {
+                return Some(found);
+            }
         }
+        for child in &node.floating_nodes {
+            if let Some(found) = find_focused(child) {
+                return Some(found);
+            }
+        }
+        None
     }
-    None
-}
-#[derive(Clone)]
-pub struct CurrentProgram;
 
-#[async_trait]
-impl Handler for CurrentProgram {
-    async fn handle(&self) -> StdResult<HashMap<String, String>, Box<dyn Error + Send + Sync>> {
+
+    pub async fn handle() -> StdResult<HashMap<String, String>, Box<dyn Error + Send + Sync>> {
         let mut connection = Connection::new().expect("Failed to connect to sway");
         let tree = connection.get_tree().expect("Failed to get tree");
 
@@ -255,7 +181,7 @@ impl Handler for CurrentProgram {
 
         Ok(om)
     }
-    fn render(&self, i: &HashMap<String, String>) -> String {
+    pub fn render(i: &HashMap<String, String>) -> String {
         format!(
             "{}",
             i.get(&"out".to_string()).unwrap_or(&"nada".to_string())
@@ -263,12 +189,73 @@ impl Handler for CurrentProgram {
     }
 }
 
-#[derive(Clone)]
-pub struct Quote;
 
-#[async_trait]
-impl Handler for Quote {
-    async fn handle(&self) -> StdResult<HashMap<String, String>, Box<dyn Error + Send + Sync>> {
+pub mod quote {
+    use rand::Rng;
+    use rand::SeedableRng;
+    use rand::rngs::StdRng;
+    use reqwest::Client;
+    use serde::{Deserialize, Serialize};
+    use std::collections::HashMap;
+    use std::error::Error;
+    use std::result::Result as StdResult;
+
+    #[derive(Serialize)]
+    struct Message {
+        role: String,
+        content: String,
+    }
+
+    #[derive(Serialize)]
+    struct ChatRequest {
+        model: String,
+        messages: Vec<Message>,
+    }
+
+    #[derive(Deserialize)]
+    struct Choice {
+        message: MessageContent,
+    }
+
+    #[derive(Deserialize)]
+    struct MessageContent {
+        content: String,
+    }
+
+    #[derive(Deserialize)]
+    struct ChatResponse {
+        choices: Vec<Choice>,
+    }
+
+    pub async fn get_inspirational_quote(
+        api_key: &str,
+        prompt: &str,
+    ) -> Result<String, Box<dyn Error + Send + Sync>> {
+        let client = Client::new();
+
+        let body = ChatRequest {
+            model: "gpt-3.5-turbo".to_string(),
+            messages: vec![Message {
+                role: "user".to_string(),
+                content: prompt.to_string(),
+            }],
+        };
+
+        let res = client
+            .post("https://api.openai.com/v1/chat/completions")
+            .bearer_auth(api_key)
+            .json(&body)
+            .send()
+            .await?;
+
+        let data: ChatResponse = res.json().await?;
+        let quote = &data.choices.get(0).unwrap().message.content;
+
+        Ok(quote.trim().to_string())
+    }
+
+
+    pub async fn handle() -> StdResult<HashMap<String, String>, Box<dyn Error + Send + Sync>> {
         let topics_str = tokio::fs::read_to_string("/home/tombert/.config/sway/topics").await?;
         let topics: Vec<String> = topics_str.lines().map(|i| i.to_string()).collect();
         let mut rng = StdRng::from_entropy();
@@ -288,19 +275,31 @@ impl Handler for Quote {
             .collect();
         Ok(out_map)
     }
-    fn render(&self, i: &HashMap<String, String>) -> String {
+    pub fn render(i: &HashMap<String, String>) -> String {
         let error_text = "ERROR!".to_string();
         let quote = i.get(&"quote".to_string()).unwrap_or(&error_text);
         format!("{}", quote)
     }
 }
 
-#[derive(Clone)]
-pub struct Battery;
+pub mod battery {
 
-#[async_trait]
-impl Handler for Battery {
-    async fn handle(&self) -> StdResult<HashMap<String, String>, Box<dyn Error + Send + Sync>> {
+    use std::collections::HashMap;
+    use std::error::Error;
+    use std::result::Result as StdResult;
+
+
+    fn bat_status_icons(n: &str) -> &'static str {
+        match n {
+            "full" => "🟢",
+            "charging" => "⚡",
+            "notcharging" => "🔌",
+            "discharging" => "🔋",
+            _ => "",
+        }
+    }
+
+    pub async fn handle() -> StdResult<HashMap<String, String>, Box<dyn Error + Send + Sync>> {
         let bat_path = "/sys/class/power_supply/BAT0";
         let cap_path = format!("{}/capacity", bat_path);
         let stat_path = format!("{}/status", bat_path);
@@ -316,7 +315,7 @@ impl Handler for Battery {
         Ok(out_map)
     }
 
-    fn render(&self, i: &HashMap<String, String>) -> String {
+    pub fn render(i: &HashMap<String, String>) -> String {
         let empty = "".to_string();
         let cap = i.get("capacity").unwrap_or(&empty);
         let stat = i.get("status").unwrap_or(&empty).as_str();
@@ -324,12 +323,21 @@ impl Handler for Battery {
     }
 }
 
-#[derive(Clone)]
-pub struct Wifi;
+pub mod wifi {
+    use std::collections::HashMap;
+    use std::error::Error;
+    use std::result::Result as StdResult;
+    use tokio::process::Command;
 
-#[async_trait]
-impl Handler for Wifi {
-    async fn handle(&self) -> StdResult<HashMap<String, String>, Box<dyn Error + Send + Sync>> {
+    fn wifi_status_icons(n: &str) -> &'static str {
+        match n {
+            "connected" => "📶",
+            "disconnected" => "❌",
+            _ => "",
+        }
+    }
+
+    pub async fn handle() -> StdResult<HashMap<String, String>, Box<dyn Error + Send + Sync>> {
         let wifi_cmd = Command::new("iw").arg("dev").output().await?;
         let s: Vec<String> = String::from_utf8_lossy(&wifi_cmd.stdout)
             .lines()
@@ -359,48 +367,44 @@ impl Handler for Wifi {
             .iter()
             .map(|(k, v)| (k.to_string(), v.to_string()))
             .collect();
-        //out_map.insert("connect_status".to_string(), connect_status.to_string());
 
         Ok(out_map)
     }
 
-    fn render(&self, i: &HashMap<String, String>) -> String {
+    pub fn render(i: &HashMap<String, String>) -> String {
         let empty = "".to_string();
         let connected = i.get("connect_status").unwrap_or(&empty);
         format!("{}", wifi_status_icons(&connected))
     }
 }
 
-fn bat_status_icons(n: &str) -> &'static str {
-    match n {
-        "full" => "🟢",
-        "charging" => "⚡",
-        "notcharging" => "🔌",
-        "discharging" => "🔋",
-        _ => "",
-    }
-}
 
-fn get_volume_icon(vol_level: i32, is_muted: bool) -> &'static str {
-    let small_speaker_cutoff = 40;
-    let mid_speaker_cutoff = 80;
-    if is_muted {
-        "🔇"
-    } else if vol_level < small_speaker_cutoff {
-        "🔈"
-    } else if vol_level < mid_speaker_cutoff {
-        "🔉"
-    } else {
-        "🔊"
-    }
-}
 
-#[derive(Clone)]
-pub struct Volume;
-#[async_trait]
-impl Handler for Volume {
-    async fn handle(&self) -> StdResult<HashMap<String, String>, Box<dyn Error + Send + Sync>> {
-        let SPACE = " ".to_string();
+pub mod volume {
+
+    use std::collections::HashMap;
+    use std::error::Error;
+    use std::result::Result as StdResult;
+    use tokio::process::Command;
+
+    fn get_volume_icon(vol_level: i32, is_muted: bool) -> &'static str {
+        let small_speaker_cutoff = 40;
+        let mid_speaker_cutoff = 80;
+        if is_muted {
+            "🔇"
+        } else if vol_level < small_speaker_cutoff {
+            "🔈"
+        } else if vol_level < mid_speaker_cutoff {
+            "🔉"
+        } else {
+            "🔊"
+        }
+    }
+
+
+    pub async fn handle() -> StdResult<HashMap<String, String>, Box<dyn Error + Send + Sync>> {
+        //let SPACE = " ".to_string();
+        let space = String::from(" ");
         let is_muted_cmd = Command::new("pactl")
             .arg("get-sink-mute")
             .arg("@DEFAULT_SINK@")
@@ -412,10 +416,10 @@ impl Handler for Volume {
             .output()
             .await?;
         let vol_info_str = String::from_utf8_lossy(&vol_info_cmd.stdout);
-        let vol_info: Vec<String> = vol_info_str.split(&SPACE).map(|i| i.to_string()).collect();
+        let vol_info: Vec<String> = vol_info_str.split(&space).map(|i| i.to_string()).collect();
         let is_muted_raw_str = String::from_utf8_lossy(&is_muted_cmd.stdout);
         let is_muted_lower = is_muted_raw_str.to_lowercase();
-        let is_muted_str = is_muted_lower.split(&SPACE).map(|x| x.trim()).last();
+        let is_muted_str = is_muted_lower.split(&space).map(|x| x.trim()).last();
 
         let is_muted = match is_muted_str {
             Some("yes") => "muted",
@@ -431,14 +435,14 @@ impl Handler for Volume {
         .replace("%", "");
         let out_map: HashMap<String, String> =
             [("volume_level", vol_level), ("is_muted", is_muted)]
-                .iter()
+            .iter()
                 .map(|(k, v)| (k.to_string(), v.to_string()))
                 .collect();
 
         Ok(out_map)
     }
 
-    fn render(&self, i: &HashMap<String, String>) -> String {
+    pub fn render(i: &HashMap<String, String>) -> String {
         let default_muted = "default_muted".to_string();
         let is_muted = i.get("is_muted").unwrap_or(&default_muted) == "muted";
         let default_vol = "50".to_string();
@@ -451,12 +455,32 @@ impl Handler for Volume {
     }
 }
 
-#[derive(Clone)]
-pub struct Date;
+pub mod date {
+    use chrono::{Datelike, Local, Timelike};
+    use std::collections::HashMap;
+    use std::error::Error;
+    use std::result::Result as StdResult;
 
-#[async_trait]
-impl Handler for Date {
-    async fn handle(&self) -> StdResult<HashMap<String, String>, Box<dyn Error + Send + Sync>> {
+
+    fn month_abbr(n: u32) -> &'static str {
+        match n {
+            1 => "Jan",
+            2 => "Feb",
+            3 => "Mar",
+            4 => "Apr",
+            5 => "May",
+            6 => "Jun",
+            7 => "Jul",
+            8 => "Aug",
+            9 => "Sep",
+            10 => "Oct",
+            11 => "Nov",
+            12 => "Dec",
+            _ => "???", 
+        }
+    }
+
+    pub async fn handle() -> StdResult<HashMap<String, String>, Box<dyn Error + Send + Sync>> {
         let now = Local::now();
         let weekday = now.weekday();
         let day = now.day();
@@ -480,7 +504,7 @@ impl Handler for Date {
         Ok(out_hash)
     }
 
-    fn render(&self, i: &HashMap<String, String>) -> String {
+    pub fn render(i: &HashMap<String, String>) -> String {
         static EMPTY: String = String::new();
 
         let hour = i.get("hour").unwrap_or(&EMPTY);

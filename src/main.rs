@@ -11,17 +11,26 @@ use futures::future::join_all;
 use std::result::Result as StdResult;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use types::{Meta, MouseHandler};
+use std::pin::Pin;
+use std::future::Future;
 
-fn get_handler(my_type: &str) -> Box<dyn types::Handler> {
+macro_rules! boxed_handler {
+    ($path:path) => {
+        || -> Pin<Box<dyn Future<Output = _> + Send>> {
+            Box::pin($path())
+        }
+    };
+}
+fn get_handler(my_type: &str) ->  (types::BoxedHandler, types::RenderFn) {
     match my_type {
-        "date" => Box::new(types::Date),
-        "battery" => Box::new(types::Battery),
-        "wifi" => Box::new(types::Wifi),
-        "volume" => Box::new(types::Volume),
-        "quote" => Box::new(types::Quote),
-        "current" => Box::new(types::CurrentProgram),
-        "bgchange" => Box::new(types::BgChanger),
-        _ => Box::new(types::Noop),
+        "date" => (boxed_handler!(types::date::handle), types::date::render), 
+        "battery" => (boxed_handler!(types::battery::handle), types::battery::render),
+        "wifi" => (boxed_handler!(types::wifi::handle), types::wifi::render),
+        "volume" => (boxed_handler!(types::volume::handle), types::volume::render),
+        "quote" => (boxed_handler!(types::quote::handle), types::quote::render),
+        "current" => (boxed_handler!(types::current_program::handle), types::current_program::render),
+        "bgchange" => (boxed_handler!(types::bg_changer::handle), types::bg_changer::render), 
+        _ => (boxed_handler!(types::noop::handle), types::noop::render)
     }
 }
 
@@ -153,8 +162,8 @@ async fn main() -> StdResult<(), Box<dyn Error>> {
 
             let fin = async move {
                 let name = name.as_str();
-                let handler1 = get_handler(name);
-                let handler2 = get_handler(name);
+                let (handler, render) = get_handler(name);
+                //let handler2 = get_handler(name);
                 let now = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
                     .expect("Time went backwards");
@@ -165,7 +174,7 @@ async fn main() -> StdResult<(), Box<dyn Error>> {
                     }
 
                     let fut = tokio::spawn(async move {
-                        let f = handler1.handle().await;
+                        let f = handler().await;
                         match f {
                             Ok(ff) => Some(ff),
                             Err(_) => None,
@@ -208,7 +217,7 @@ async fn main() -> StdResult<(), Box<dyn Error>> {
                 };
 
                 let out = if display {
-                    Some(handler2.render(&state.data))
+                    Some(render(&state.data))
                 } else {
                     None
                 };
