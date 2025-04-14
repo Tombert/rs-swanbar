@@ -10,7 +10,7 @@ mod types;
 use std::result::Result as StdResult;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use futures::future::join_all;
-use types::{Meta, MouseHandler};
+use types::{Handler, Meta, MouseHandler};
 
 fn get_handler(my_type: &str) -> Box<dyn types::Handler> {
     match my_type {
@@ -99,6 +99,29 @@ pub struct Args {
     pub config: String,
 }
 
+fn schedule_job (handler1: Box<dyn Handler>, begin_data: HashMap<String, String>, old_fut: Option<JoinHandle<HashMap<String, String>>>, now : Duration) -> (Meta, Option<JoinHandle<HashMap<String, String>>>){
+    let bd = begin_data.clone();
+    let fut = tokio::spawn(async move {
+        let f = handler1.handle().await; 
+        match f {
+            Ok(ff) => ff,
+            Err(_) => bd
+        }
+    });
+
+    match old_fut {
+        Some(f) => f.abort(),
+        None => ()
+    }
+    let ns = Meta {
+        is_processing : true, 
+        start_time : now, 
+        data : begin_data.clone()
+    };
+    (ns, Some(fut))
+}
+
+
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 1)]
 async fn main() -> StdResult<(), Box<dyn Error>> {
@@ -156,26 +179,8 @@ async fn main() -> StdResult<(), Box<dyn Error>> {
                     .expect("Time went backwards");
                 let expire_time = begin_state.start_time + ttl; 
                 let begin_data = begin_state.data.clone();
-                let (mut new_state, mut my_f)=  if !begin_state.is_processing && now > expire_time {
-                    let fut = tokio::spawn(async move {
-                        let f = handler1.handle().await; 
-                        match f {
-                            Ok(ff) => ff,
-                            Err(_) => begin_data
-                        }
-                    });
-
-                    match old_fut {
-                        Some(f) => f.abort(),
-                        None => ()
-                    }
-                    let ns = Meta {
-                        is_processing : true, 
-                        start_time : now, 
-                        data : begin_state.data
-                    };
-                    (ns, Some(fut))
-
+                let (mut new_state, mut my_f) =  if !begin_state.is_processing && now > expire_time {
+                    schedule_job(handler1, begin_data, old_fut, now)
                 } else {
                     (begin_state, old_fut)
                 };
@@ -229,23 +234,17 @@ async fn main() -> StdResult<(), Box<dyn Error>> {
 
         let out_objs: Vec<types::Out> = values.into_iter().filter_map(|(name, meta, out_str,new_fut)|{
             state.insert(name.clone(), meta.clone());
-            match new_fut {
-                Some(f) => {
-                    futures.insert(name.clone(), f);
-                }, 
-                None => ()
+            if let Some(f) = new_fut {
+                futures.insert(name.clone(), f);
             }
 
-            match out_str {
-                Some (out_str) => {
-                    Some(types::Out {
-                        name: name.clone(),
-                        instance: name.clone(),
-                        full_text: out_str.to_string()
-                    })
-                },
-                None => None
-            }
+            out_str.map(|f| {
+                types::Out {
+                    name: name.clone(),
+                    instance: name.clone(),
+                    full_text: f.to_string()
+                }
+            })
         }).collect();
 
         render_sender.send(out_objs).await?;
