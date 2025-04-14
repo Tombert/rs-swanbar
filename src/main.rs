@@ -99,30 +99,6 @@ pub struct Args {
     pub config: String,
 }
 
-fn schedule_job (handler1: Box<dyn Handler>, begin_data: HashMap<String, String>, old_fut: Option<JoinHandle<HashMap<String, String>>>, now : Duration) -> (Meta, Option<JoinHandle<HashMap<String, String>>>){
-    let bd = begin_data.clone();
-    let fut = tokio::spawn(async move {
-        let f = handler1.handle().await; 
-        match f {
-            Ok(ff) => ff,
-            Err(_) => bd
-        }
-    });
-
-    match old_fut {
-        Some(f) => f.abort(),
-        None => ()
-    }
-    let ns = Meta {
-        is_processing : true, 
-        start_time : now, 
-        data : begin_data.clone()
-    };
-    (ns, Some(fut))
-}
-
-
-
 #[tokio::main(flavor = "multi_thread", worker_threads = 1)]
 async fn main() -> StdResult<(), Box<dyn Error>> {
     let stdin = tokio::io::stdin(); // 
@@ -239,11 +215,10 @@ async fn main() -> StdResult<(), Box<dyn Error>> {
             futs.push(fin);
         }
 
-
         let values = join_all(futs).await; 
 
         let out_objs: Vec<types::Out> = values.into_iter().filter_map(|(name, meta, out_str, new_fut)|{
-            state.insert(name.clone(), meta.clone());
+            state.insert(name.clone(), meta);
             if let Some(f) = new_fut {
                 futures.insert(name.clone(), f);
             }
@@ -251,8 +226,8 @@ async fn main() -> StdResult<(), Box<dyn Error>> {
             out_str.map(|f| {
                 types::Out {
                     name: name.clone(),
-                    instance: name.clone(),
-                    full_text: f.to_string()
+                    instance: name,
+                    full_text: f
                 }
             })
         }).collect();
