@@ -400,7 +400,7 @@ pub struct Volume;
 #[async_trait]
 impl Handler for Volume {
     async fn handle(&self) -> StdResult<HashMap<String, String>, Box<dyn Error + Send + Sync>> {
-        let space = " ".to_string();
+        let SPACE = " ".to_string();
         let is_muted_cmd = Command::new("pactl")
             .arg("get-sink-mute")
             .arg("@DEFAULT_SINK@")
@@ -412,10 +412,10 @@ impl Handler for Volume {
             .output()
             .await?;
         let vol_info_str = String::from_utf8_lossy(&vol_info_cmd.stdout);
-        let vol_info: Vec<String> = vol_info_str.split(&space).map(|i| i.to_string()).collect();
+        let vol_info: Vec<String> = vol_info_str.split(&SPACE).map(|i| i.to_string()).collect();
         let is_muted_raw_str = String::from_utf8_lossy(&is_muted_cmd.stdout);
         let is_muted_lower = is_muted_raw_str.to_lowercase();
-        let is_muted_str = is_muted_lower.split(&space).map(|x| x.trim()).last();
+        let is_muted_str = is_muted_lower.split(&SPACE).map(|x| x.trim()).last();
 
         let is_muted = match is_muted_str {
             Some("yes") => "muted",
