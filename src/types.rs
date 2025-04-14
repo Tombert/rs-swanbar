@@ -5,11 +5,15 @@ use std::error::Error;
 use std::future::Future;
 use std::pin::Pin;
 use std::result::Result as StdResult;
-use tokio::process::Command;
 use std::time::Duration;
+use tokio::process::Command;
 
-pub type BoxedHandler =
-    fn() -> Pin<Box<dyn Future<Output = StdResult<HashMap<String, String>, Box<dyn Error + Send + Sync>>> + Send>>;
+pub type BoxedHandler = fn() -> Pin<
+    Box<
+        dyn Future<Output = StdResult<HashMap<String, String>, Box<dyn Error + Send + Sync>>>
+            + Send,
+    >,
+>;
 pub type RenderFn = fn(&HashMap<String, String>) -> String;
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -18,8 +22,6 @@ pub struct Meta {
     pub start_time: Duration,
     pub data: HashMap<String, String>,
 }
-
-
 
 #[async_trait]
 pub trait MouseHandler: Send + Sync {
@@ -60,19 +62,18 @@ impl MouseHandler for MouseNoop {
     }
 }
 
-
 pub mod bg_changer {
 
     use rand::Rng;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
-    use tokio::process::Command;
-    use tokio_stream::wrappers::ReadDirStream;
-    use std::result::Result as StdResult;
     use std::collections::HashMap;
-    use tokio::fs;
     use std::error::Error;
+    use std::result::Result as StdResult;
+    use tokio::fs;
+    use tokio::process::Command;
     use tokio_stream::StreamExt;
+    use tokio_stream::wrappers::ReadDirStream;
     pub async fn handle() -> StdResult<HashMap<String, String>, Box<dyn Error + Send + Sync>> {
         let mut entries = ReadDirStream::new(fs::read_dir("/home/tombert/wallpapers/").await?);
         let mut files = Vec::new();
@@ -83,7 +84,7 @@ pub mod bg_changer {
             let file_name_str = file_name.to_string_lossy();
             if file_name_str.ends_with(".jpg")
                 || file_name_str.ends_with(".jpeg")
-                    || file_name_str.ends_with(".png")
+                || file_name_str.ends_with(".png")
             {
                 files.push(file_name);
             }
@@ -102,7 +103,7 @@ pub mod bg_changer {
                 .arg("stretch")
                 .output()
                 .await;
-            });
+        });
 
         let mut out_hash = HashMap::new();
         out_hash.insert("".to_string(), "".to_string());
@@ -119,7 +120,6 @@ pub mod noop {
     use std::error::Error;
     use std::result::Result as StdResult;
 
-
     pub async fn handle() -> StdResult<HashMap<String, String>, Box<dyn Error + Send + Sync>> {
         let mut out_hash = HashMap::new();
         out_hash.insert("".to_string(), "".to_string());
@@ -129,7 +129,6 @@ pub mod noop {
         "".to_string()
     }
 }
-
 
 pub mod current_program {
     use std::collections::HashMap;
@@ -153,7 +152,6 @@ pub mod current_program {
         }
         None
     }
-
 
     pub async fn handle() -> StdResult<HashMap<String, String>, Box<dyn Error + Send + Sync>> {
         let mut connection = Connection::new().expect("Failed to connect to sway");
@@ -188,7 +186,6 @@ pub mod current_program {
         )
     }
 }
-
 
 pub mod quote {
     use rand::Rng;
@@ -254,7 +251,6 @@ pub mod quote {
         Ok(quote.trim().to_string())
     }
 
-
     pub async fn handle() -> StdResult<HashMap<String, String>, Box<dyn Error + Send + Sync>> {
         let topics_str = tokio::fs::read_to_string("/home/tombert/.config/sway/topics").await?;
         let topics: Vec<String> = topics_str.lines().map(|i| i.to_string()).collect();
@@ -287,7 +283,6 @@ pub mod battery {
     use std::collections::HashMap;
     use std::error::Error;
     use std::result::Result as StdResult;
-
 
     fn bat_status_icons(n: &str) -> &'static str {
         match n {
@@ -378,8 +373,6 @@ pub mod wifi {
     }
 }
 
-
-
 pub mod volume {
 
     use std::collections::HashMap;
@@ -400,7 +393,6 @@ pub mod volume {
             "🔊"
         }
     }
-
 
     pub async fn handle() -> StdResult<HashMap<String, String>, Box<dyn Error + Send + Sync>> {
         //let SPACE = " ".to_string();
@@ -435,7 +427,7 @@ pub mod volume {
         .replace("%", "");
         let out_map: HashMap<String, String> =
             [("volume_level", vol_level), ("is_muted", is_muted)]
-            .iter()
+                .iter()
                 .map(|(k, v)| (k.to_string(), v.to_string()))
                 .collect();
 
@@ -461,7 +453,6 @@ pub mod date {
     use std::error::Error;
     use std::result::Result as StdResult;
 
-
     fn month_abbr(n: u32) -> &'static str {
         match n {
             1 => "Jan",
@@ -476,7 +467,7 @@ pub mod date {
             10 => "Oct",
             11 => "Nov",
             12 => "Dec",
-            _ => "???", 
+            _ => "???",
         }
     }
 

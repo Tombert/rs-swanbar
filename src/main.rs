@@ -8,29 +8,36 @@ use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::task::JoinHandle;
 mod types;
 use futures::future::join_all;
+use std::future::Future;
+use std::pin::Pin;
 use std::result::Result as StdResult;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use types::{Meta, MouseHandler};
-use std::pin::Pin;
-use std::future::Future;
 
 macro_rules! boxed_handler {
     ($path:path) => {
-        || -> Pin<Box<dyn Future<Output = _> + Send>> {
-            Box::pin($path())
-        }
+        || -> Pin<Box<dyn Future<Output = _> + Send>> { Box::pin($path()) }
     };
 }
-fn get_handler(my_type: &str) ->  (types::BoxedHandler, types::RenderFn) {
+fn get_handler(my_type: &str) -> (types::BoxedHandler, types::RenderFn) {
     match my_type {
-        "date" => (boxed_handler!(types::date::handle), types::date::render), 
-        "battery" => (boxed_handler!(types::battery::handle), types::battery::render),
+        "date" => (boxed_handler!(types::date::handle), types::date::render),
+        "battery" => (
+            boxed_handler!(types::battery::handle),
+            types::battery::render,
+        ),
         "wifi" => (boxed_handler!(types::wifi::handle), types::wifi::render),
         "volume" => (boxed_handler!(types::volume::handle), types::volume::render),
         "quote" => (boxed_handler!(types::quote::handle), types::quote::render),
-        "current" => (boxed_handler!(types::current_program::handle), types::current_program::render),
-        "bgchange" => (boxed_handler!(types::bg_changer::handle), types::bg_changer::render), 
-        _ => (boxed_handler!(types::noop::handle), types::noop::render)
+        "current" => (
+            boxed_handler!(types::current_program::handle),
+            types::current_program::render,
+        ),
+        "bgchange" => (
+            boxed_handler!(types::bg_changer::handle),
+            types::bg_changer::render,
+        ),
+        _ => (boxed_handler!(types::noop::handle), types::noop::render),
     }
 }
 
