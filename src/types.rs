@@ -34,6 +34,7 @@ pub struct ModuleConfig {
 pub struct Config {
     pub poll_time: u64,
     pub default_timeout: u64,
+    pub suspend_time: Option<u64>,
     pub persist: PersistConfig,
     pub modules: Vec<ModuleConfig>,
 }

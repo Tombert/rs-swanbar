@@ -1,6 +1,7 @@
 {
 	"poll_time" : 100,
 	"default_timeout": 1000,
+	"suspend_time": 600000,
 	"persist": {
 		"path": "/home/tombert/.config/sway/persist7.json",
 		"buffer_size": 100
@@ -32,7 +33,7 @@
 		},
 		{
 			"name": "date",
-			"ttl": 10 
+			"ttl": 400 
 		}
 	]
 }

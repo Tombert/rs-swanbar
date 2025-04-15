@@ -1,9 +1,12 @@
+
+use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use std::env;
 use clap::Parser;
 use futures::FutureExt;
 use serde_json::Value;
 use std::error::Error;
 use std::{collections::HashMap, fs::read_to_string, fs::write};
-use tokio::io::{AsyncBufReadExt, BufReader, Stdin};
+use tokio::io::{AsyncBufReadExt, BufReader, Stdin, AsyncReadExt, AsyncWriteExt};
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::task::JoinHandle;
 mod types;
@@ -14,6 +17,8 @@ use std::pin::Pin;
 use std::result::Result as StdResult;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use types::Meta;
+use std::os::unix::net::UnixStream as StdUnixStream;
+use tokio::net::UnixStream;
 
 macro_rules! boxed_handler {
     ($path:path) => {
@@ -127,14 +132,67 @@ fn reset_state(state: &mut Meta) {
     state.start_time = Duration::ZERO;
 }
 
+const SWAY_MAGIC: &[u8] = b"i3-ipc";
+const SUBSCRIBE: u32 = 2;
+
+async fn get_stream() -> StdResult<UnixStream, Box<dyn Error>> {
+    let socket_path = env::var("SWAYSOCK")?;
+//    let std_stream = StdUnixStream::connect(socket_path)?;
+    let mut stream = UnixStream::connect(socket_path).await?;
+
+    let payload = r#"["window", "input", "binding"]"#;
+    let payload_bytes = payload.as_bytes();
+
+    stream.write_all(SWAY_MAGIC).await?;
+    stream.write_u32_le(payload_bytes.len() as u32).await?;
+    stream.write_u32_le(SUBSCRIBE).await?;
+    stream.write_all(payload_bytes).await?;
+    stream.flush().await?;
+    Ok(stream)
+
+}
+
+
+
+fn listen_on_swap_ipc(mut stream: UnixStream, timeout : Duration) {
+
+    tokio::task::spawn(async move {
+        loop {
+            let mut header = [0u8; 14];
+            tokio::select! {
+                _result = stream.read_exact(&mut header) => {
+                    ()
+                }
+
+                _ = tokio::time::sleep(timeout) => {
+                    let _ = std::process::Command::new("systemctl")
+                        .arg("suspend")
+                        .spawn();
+                }
+            }
+        }
+    });
+}
+
+
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> StdResult<(), Box<dyn Error>> {
+
+
+
     let stdin = tokio::io::stdin(); // 
     let reader = BufReader::new(stdin);
     let args = Args::parse();
     let path = args.config;
     let config_str = read_to_string(path)?;
     let config: types::Config = serde_json::from_str(config_str.as_str())?;
+    let stream = get_stream().await?; 
+
+    if let Some(suspend_timeout_ms) = config.suspend_time {
+        listen_on_swap_ipc(stream, Duration::from_millis(suspend_timeout_ms)); 
+
+    }
+
     let init_state_str = match read_to_string(config.persist.path.to_string()) {
         Ok(my_str) => my_str,
         Err(_) => String::from("{}"),
