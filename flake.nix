@@ -1,41 +1,52 @@
 {
-  description = "Swaybar Thing";
+  description = "Statically linked swaybar using musl";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
+    rust-overlay.url = "github:oxalica/rust-overlay";
   };
 
-  outputs = { self, nixpkgs, flake-utils }:
+  outputs = { self, nixpkgs, flake-utils, rust-overlay }:
     flake-utils.lib.eachDefaultSystem (system:
       let
-        pkgs = import nixpkgs { inherit system; };
-	rust = pkgs.rustc;
+        overlays = [ rust-overlay.overlays.default ];
+        pkgs = import nixpkgs { inherit system overlays; };
+
+        targetTriple = "x86_64-unknown-linux-musl";
+
+        crossPkgs = pkgs.pkgsCross.musl64;
+
       in {
-        packages.default = pkgs.rustPlatform.buildRustPackage {
+        packages.default = crossPkgs.rustPlatform.buildRustPackage {
           pname = "swaybar-rs";
           version = "0.1.0";
-	  src = pkgs.lib.cleanSourceWith {
-             src = ./.;
-             filter = path: type: true;
-          };
+          src = pkgs.lib.cleanSource ./.;
+          cargoLock.lockFile = ./Cargo.lock;
 
-          cargoLock = {
-            lockFile = ./Cargo.lock;
-          };
+          target = targetTriple;
 
-          nativeBuildInputs = with pkgs; [
-            pkg-config
-          ];
+	  buildInputs = with crossPkgs; [ musl.dev ];
+	  nativeBuildInputs = with pkgs; [ pkg-config binutils ];
 
+          RUSTFLAGS = "-C target-feature=+crt-static";
+
+          doCheck = false;
+          stripAll = true;
+
+          installPhase = ''
+            mkdir -p $out/bin
+            cp target/${targetTriple}/release/swaybar3 $out/bin/
+            strip $out/bin/swaybar3
+          '';
         };
 
         devShells.default = pkgs.mkShell {
           buildInputs = [
-            rust
-	    pkgs.rustfmt
-	    pkgs.cargo
+            pkgs.rust-bin.stable.latest.complete
             pkgs.pkg-config
+            pkgs.musl
+            pkgs.rust-analyzer
           ];
         };
       });
