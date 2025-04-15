@@ -30,6 +30,26 @@ pub mod volume_click {
     }
 }
 
+pub mod prog_click {
+    use std::error::Error;
+    use std::result::Result as StdResult;
+    use tokio::process::Command;
+    pub async fn click_handle() -> StdResult<(), Box<dyn Error + Send + Sync>> { 
+        Command::new("foot")
+            .arg("sh")
+            .arg("-c")
+            .arg("/home/tombert/.config/sway/prog-select")
+            .output()
+            .await?;
+        Ok(())
+
+    }
+    
+
+}
+
+
+
 pub mod wifi_click {
 
     use std::error::Error;
