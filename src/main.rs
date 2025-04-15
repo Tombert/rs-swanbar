@@ -178,8 +178,6 @@ fn listen_on_swap_ipc(mut stream: UnixStream, timeout : Duration) {
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> StdResult<(), Box<dyn Error>> {
 
-
-
     let stdin = tokio::io::stdin(); // 
     let reader = BufReader::new(stdin);
     let args = Args::parse();
@@ -190,7 +188,6 @@ async fn main() -> StdResult<(), Box<dyn Error>> {
 
     if let Some(suspend_timeout_ms) = config.suspend_time {
         listen_on_swap_ipc(stream, Duration::from_millis(suspend_timeout_ms)); 
-
     }
 
     let init_state_str = match read_to_string(config.persist.path.to_string()) {
@@ -199,7 +196,7 @@ async fn main() -> StdResult<(), Box<dyn Error>> {
     };
     let mut state: HashMap<String, Meta> = serde_json::from_str(init_state_str.as_str())?;
 
-    let poll_time = Duration::from_millis(config.poll_time);
+    let poll_time = Duration::from_millis(config.poll_time.unwrap_or(100));
     let (render_sender, render_receiver) = tokio::sync::mpsc::channel::<Vec<types::Out>>(5);
     render(render_receiver).await;
 
