@@ -174,6 +174,8 @@ pub mod quote {
     use rand::Rng;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
+    use std::fs::File;
+    use std::io::{BufRead, BufReader};
     use reqwest::Client;
     use serde::{Deserialize, Serialize};
     use std::collections::HashMap;
@@ -233,14 +235,28 @@ pub mod quote {
 
         Ok(quote.trim().to_string())
     }
+    fn pick_random_line(path: &str) -> Option<String> {
+        let file = File::open(path).ok()?;
+        let reader = BufReader::new(file);
+        let mut rng = rand::thread_rng();
+
+        let mut selected = None;
+        for (i, line) in reader.lines().enumerate() {
+            let line = line.ok()?;
+            if rng.gen_range(0..=i) == 0 {
+                selected = Some(line);
+            }
+        }
+
+        selected
+    }
 
     pub async fn handle() -> StdResult<HashMap<String, String>, Box<dyn Error + Send + Sync>> {
-        let topics_str = tokio::fs::read_to_string("/home/tombert/.config/sway/topics").await?;
-        let topics: Vec<String> = topics_str.lines().map(|i| i.to_string()).collect();
-        let mut rng = StdRng::from_entropy();
-        let random_num = rng.gen_range(0..topics.len());
-        let default_quote = String::from("French Fry Dumpsters");
-        let topic = topics.get(random_num).unwrap_or(&default_quote);
+        //let topics_str = tokio::fs::read_to_string().await?;
+        let topic = pick_random_line("/home/tombert/.config/sway/topics").unwrap();
+        //let topics: Vec<String> = topics_str.lines().map(|i| i.to_string()).collect();
+        //let default_quote = String::from("French Fry Dumpsters");
+        //let topic = topics.get(random_num).unwrap_or(&default_quote);
         let api_key = tokio::fs::read_to_string("/home/tombert/openai.key").await?;
         let api_key = api_key.trim();
         let prompt = format!(
