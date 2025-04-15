@@ -7,6 +7,7 @@ use tokio::io::{AsyncBufReadExt, BufReader, Stdin};
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::task::JoinHandle;
 mod types;
+mod handlers;
 use futures::future::join_all;
 use std::future::Future;
 use std::pin::Pin;
@@ -19,25 +20,26 @@ macro_rules! boxed_handler {
         || -> Pin<Box<dyn Future<Output = _> + Send>> { Box::pin($path()) }
     };
 }
-fn get_handler(my_type: &str) -> (types::BoxedHandler, types::RenderFn) {
+
+fn get_handler(my_type: &str) -> (handlers::BoxedHandler, handlers::RenderFn) {
     match my_type {
-        "date" => (boxed_handler!(types::date::handle), types::date::render),
+        "date" => (boxed_handler!(handlers::date::handle), handlers::date::render),
         "battery" => (
-            boxed_handler!(types::battery::handle),
-            types::battery::render,
+            boxed_handler!(handlers::battery::handle),
+            handlers::battery::render,
         ),
-        "wifi" => (boxed_handler!(types::wifi::handle), types::wifi::render),
-        "volume" => (boxed_handler!(types::volume::handle), types::volume::render),
-        "quote" => (boxed_handler!(types::quote::handle), types::quote::render),
+        "wifi" => (boxed_handler!(handlers::wifi::handle), handlers::wifi::render),
+        "volume" => (boxed_handler!(handlers::volume::handle), handlers::volume::render),
+        "quote" => (boxed_handler!(handlers::quote::handle), handlers::quote::render),
         "current" => (
-            boxed_handler!(types::current_program::handle),
-            types::current_program::render,
+            boxed_handler!(handlers::current_program::handle),
+            handlers::current_program::render,
         ),
         "bgchange" => (
-            boxed_handler!(types::bg_changer::handle),
-            types::bg_changer::render,
+            boxed_handler!(handlers::bg_changer::handle),
+            handlers::bg_changer::render,
         ),
-        _ => (boxed_handler!(types::noop::handle), types::noop::render),
+        _ => (boxed_handler!(handlers::noop::handle), handlers::noop::render),
     }
 }
 
@@ -56,15 +58,15 @@ async fn render(mut chan: Receiver<Vec<types::Out>>) {
     });
 }
 
-fn get_mouse_handler(x: &str) -> types::MouseBoxedHandler {
+fn get_mouse_handler(x: &str) -> handlers::MouseBoxedHandler {
     match x {
-        "wifi" => boxed_handler!(types::wifi_click::click_handle),
-        "volume" => boxed_handler!(types::volume_click::click_handle),
-        _ => boxed_handler!(types::mouse_noop::click_handle),
+        "wifi" => boxed_handler!(handlers::wifi_click::click_handle),
+        "volume" => boxed_handler!(handlers::volume_click::click_handle),
+        _ => boxed_handler!(handlers::mouse_noop::click_handle),
     }
 }
 
-fn mouse_listener(chan: Sender<types::MouseBoxedHandler>, reader: BufReader<Stdin>) {
+fn mouse_listener(chan: Sender<handlers::MouseBoxedHandler>, reader: BufReader<Stdin>) {
     let mut lines = reader.lines();
 
     tokio::task::spawn(async move {
@@ -113,6 +115,18 @@ pub struct Args {
     pub config: String,
 }
 
+fn possible_abort_task<T>(z: Option<JoinHandle<T>>) {
+    if let Some(f) = z {
+        f.abort();
+    }
+
+}
+
+fn reset_state(state: &mut Meta) {
+    state.is_processing = false;
+    state.start_time = Duration::ZERO;
+}
+
 #[tokio::main(flavor = "multi_thread", worker_threads = 1)]
 async fn main() -> StdResult<(), Box<dyn Error>> {
     let stdin = tokio::io::stdin(); // 
@@ -134,7 +148,7 @@ async fn main() -> StdResult<(), Box<dyn Error>> {
     let (state_sender, state_receiver) = tokio::sync::mpsc::channel::<HashMap<String, Meta>>(5);
 
     let (mouse_sender, mut mouse_receiver) =
-        tokio::sync::mpsc::channel::<types::MouseBoxedHandler>(10);
+        tokio::sync::mpsc::channel::<handlers::MouseBoxedHandler>(10);
     write_state(
         state_receiver,
         config.persist.path,
@@ -176,9 +190,7 @@ async fn main() -> StdResult<(), Box<dyn Error>> {
                     .expect("Time went backwards");
                 let expire_time = state.start_time + ttl;
                 let mut my_f = if !state.is_processing && now > expire_time {
-                    if let Some(f) = old_fut {
-                        f.abort();
-                    }
+                    possible_abort_task(old_fut);
 
                     let fut = tokio::spawn(async move {
                         let f = handler().await;
@@ -204,30 +216,19 @@ async fn main() -> StdResult<(), Box<dyn Error>> {
                     }
                     _ => {
                         let elapsed = now.checked_sub(state.start_time).unwrap_or(Duration::ZERO);
-                        if state.is_processing {
-                            if elapsed < timeout {
-                                my_f
-                            } else {
-                                state.is_processing = false;
-                                state.start_time = Duration::ZERO;
-
-                                match my_f {
-                                    Some(x) => x.abort(),
-                                    None => (),
-                                }
+                        match (state.is_processing, elapsed < timeout) {
+                            (true, true) => my_f,
+                            (true, false) => {
+                                reset_state(&mut state);
+                                possible_abort_task(my_f);
                                 None
-                            }
-                        } else {
-                            my_f
+                            },
+                            (false, _) => my_f
                         }
                     }
                 };
 
-                let out = if display {
-                    Some(render(&state.data))
-                } else {
-                    None
-                };
+                let out = display.then(|| render(&state.data));
 
                 (name.to_string(), state, out, new_fut)
             };
@@ -252,8 +253,9 @@ async fn main() -> StdResult<(), Box<dyn Error>> {
             })
             .collect();
 
-        render_sender.send(out_objs).await?;
-        state_sender.send(state.clone()).await?;
+        let a1 = render_sender.send(out_objs);
+        let a2 = state_sender.send(state.clone());
+        let _ = tokio::join!(a1, a2);
 
         let elapsed = loop_begin.elapsed();
         let wait_time = poll_time.checked_sub(elapsed).unwrap_or(Duration::ZERO);
