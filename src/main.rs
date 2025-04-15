@@ -126,7 +126,7 @@ fn reset_state(state: &mut Meta) {
     state.start_time = Duration::ZERO;
 }
 
-#[tokio::main(flavor = "multi_thread", worker_threads = 1)]
+#[tokio::main(flavor = "current_thread")]
 async fn main() -> StdResult<(), Box<dyn Error>> {
     let stdin = tokio::io::stdin(); // 
     let reader = BufReader::new(stdin);
