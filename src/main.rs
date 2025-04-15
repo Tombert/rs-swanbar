@@ -173,15 +173,14 @@ async fn main() -> StdResult<(), Box<dyn Error>> {
                 start_time: Duration::ZERO,
                 data: HashMap::new(),
             };
-            let mut state = state.get(&module_config.name).unwrap_or(&default).clone();
+            let mut state = state.remove(&module_config.name).unwrap_or(default);
             let ttl = Duration::from_millis(module_config.ttl);
-            let name = module_config.name.clone();
             let display = module_config.display.unwrap_or(true);
 
-            let old_fut = futures.remove(&name);
+            let old_fut = futures.remove(&module_config.name);
 
             let fin = async move {
-                let name = name.as_str();
+                let name = module_config.name.as_str();
                 let (handler, render) = get_handler(name);
                 //let handler2 = get_handler(name);
                 let now = SystemTime::now()
