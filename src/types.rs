@@ -9,11 +9,6 @@ pub struct Meta {
     pub data: HashMap<String, String>,
 }
 
-
-
-
-
-
 #[derive(Serialize, Deserialize)]
 pub struct Out {
     pub name: String,

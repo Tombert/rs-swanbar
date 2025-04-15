@@ -96,11 +96,11 @@ pub mod bg_changer {
         });
 
         let mut out_hash = HashMap::new();
-        out_hash.insert("".to_string(), "".to_string());
+        out_hash.insert(String::from(""), String::from(""));
         Ok(out_hash)
     }
     pub fn render(_i: &HashMap<String, String>) -> String {
-        "".to_string()
+        String::from("")
     }
 }
 
@@ -111,12 +111,11 @@ pub mod noop {
     use std::result::Result as StdResult;
 
     pub async fn handle() -> StdResult<HashMap<String, String>, Box<dyn Error + Send + Sync>> {
-        let mut out_hash = HashMap::new();
-        out_hash.insert("".to_string(), "".to_string());
+        let out_hash = HashMap::from([(String::from(""), String::from(""))]);
         Ok(out_hash)
     }
     pub fn render(_i: &HashMap<String, String>) -> String {
-        "".to_string()
+        String::from("")
     }
 }
 
@@ -166,7 +165,7 @@ pub mod current_program {
     pub fn render(i: &HashMap<String, String>) -> String {
         format!(
             "{}",
-            i.get(&"out".to_string()).unwrap_or(&"nada".to_string())
+            i.get(&String::from("out")).unwrap_or(&String::from("nada"))
         )
     }
 }
@@ -215,9 +214,9 @@ pub mod quote {
         let client = Client::new();
 
         let body = ChatRequest {
-            model: "gpt-3.5-turbo".to_string(),
+            model: String::from("gpt-3.5-turbo"),
             messages: vec![Message {
-                role: "user".to_string(),
+                role: String::from("user"),
                 content: prompt.to_string(),
             }],
         };
@@ -240,7 +239,7 @@ pub mod quote {
         let topics: Vec<String> = topics_str.lines().map(|i| i.to_string()).collect();
         let mut rng = StdRng::from_entropy();
         let random_num = rng.gen_range(0..topics.len());
-        let default_quote = "French Fry Dumpsters".to_string();
+        let default_quote = String::from("French Fry Dumpsters");
         let topic = topics.get(random_num).unwrap_or(&default_quote);
         let api_key = tokio::fs::read_to_string("/home/tombert/openai.key").await?;
         let api_key = api_key.trim();
@@ -249,12 +248,12 @@ pub mod quote {
             topic, topic
         );
         let quote = get_inspirational_quote(api_key, prompt.as_str()).await?;
-        let out_map: HashMap<String, String> = HashMap::from([("quote".to_string(), quote.to_string())]);
+        let out_map: HashMap<String, String> = HashMap::from([(String::from("quote"), quote.to_string())]);
         Ok(out_map)
     }
     pub fn render(i: &HashMap<String, String>) -> String {
-        let error_text = "ERROR!".to_string();
-        let quote = i.get(&"quote".to_string()).unwrap_or(&error_text);
+        let error_text = String::from("ERROR!");
+        let quote = i.get(&String::from("quote")).unwrap_or(&error_text);
         format!("{}", quote)
     }
 }
@@ -287,14 +286,15 @@ pub mod battery {
             .to_lowercase()
             .replace(" ", "");
 
-        let mut out_map = HashMap::new();
-        out_map.insert("capacity".to_string(), cap_string.to_string());
-        out_map.insert("status".to_string(), stat_string.to_string());
+        let out_map = HashMap::from(
+            [(String::from("capacity"), cap_string.to_string()),
+            (String::from("status"), stat_string.to_string()) ]);
+
         Ok(out_map)
     }
 
     pub fn render(i: &HashMap<String, String>) -> String {
-        let empty = "".to_string();
+        let empty = String::from("");
         let cap = i.get("capacity").unwrap_or(&empty);
         let stat = i.get("status").unwrap_or(&empty).as_str();
         format!("{} {}%", bat_status_icons(stat), cap)
@@ -347,7 +347,7 @@ pub mod wifi {
     }
 
     pub fn render(i: &HashMap<String, String>) -> String {
-        let empty = "".to_string();
+        let empty = String::from("");
         let connected = i.get("connect_status").unwrap_or(&empty);
         format!("{}", wifi_status_icons(&connected))
     }
@@ -378,7 +378,6 @@ pub mod volume {
     }
 
     pub async fn handle() -> StdResult<HashMap<String, String>, Box<dyn Error + Send + Sync>> {
-        //let SPACE = " ".to_string();
         let space = String::from(" ");
         let is_muted_cmd = Command::new("pactl")
             .arg("get-sink-mute")
@@ -417,9 +416,9 @@ pub mod volume {
     }
 
     pub fn render(i: &HashMap<String, String>) -> String {
-        let default_muted = "default_muted".to_string();
+        let default_muted = String::from("default_muted");
         let is_muted = i.get("is_muted").unwrap_or(&default_muted) == "muted";
-        let default_vol = "50".to_string();
+        let default_vol = String::from("50");
         let vol_level_str = i.get("volume_level").unwrap_or(&default_vol);
 
         let vol_level: i32 = vol_level_str.parse().unwrap_or(50);
@@ -470,13 +469,16 @@ pub mod date {
 
         let hour = format!("{:02}", mod_hour);
         let minutes = format!("{:02}", now.minute());
-        let mut out_hash = HashMap::new();
-        out_hash.insert("weekday".to_string(), weekday.to_string());
-        out_hash.insert("day".to_string(), day.to_string());
-        out_hash.insert("month".to_string(), month.to_string());
-        out_hash.insert("seconds".to_string(), seconds.to_string());
-        out_hash.insert("minutes".to_string(), minutes.to_string());
-        out_hash.insert("hour".to_string(), hour.to_string());
+
+        let out_hash = 
+            HashMap::from(
+                [(String::from("weekday"), weekday.to_string()),
+                (String::from("day"), day.to_string()),
+                (String::from("month"), month.to_string()),
+                (String::from("seconds"), seconds.to_string()),
+                (String::from("minutes"), minutes.to_string()),
+                (String::from("hour"), hour.to_string())]);
+
         Ok(out_hash)
     }
 

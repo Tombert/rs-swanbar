@@ -50,9 +50,8 @@ async fn render(mut chan: Receiver<Vec<types::Out>>) {
     tokio::task::spawn(async move {
         while let Some(msg) = chan.recv().await {
             let out_json = serde_json::to_string(&msg);
-            match out_json {
-                Ok(out) => println!("{},", out),
-                Err(_) => (),
+            if let Ok(out) = out_json {
+                println!("{},", out);
             }
         }
     });
@@ -137,7 +136,7 @@ async fn main() -> StdResult<(), Box<dyn Error>> {
     let config: types::Config = serde_json::from_str(config_str.as_str())?;
     let init_state_str = match read_to_string(config.persist.path.to_string()) {
         Ok(my_str) => my_str,
-        Err(_) => "{}".to_string(),
+        Err(_) => String::from("{}"),
     };
     let mut state: HashMap<String, Meta> = serde_json::from_str(init_state_str.as_str())?;
 
