@@ -1,7 +1,7 @@
 {
 	"poll_time" : 100,
 	"default_timeout": 1000,
-	"suspend_time": 600000,
+	"suspend_time": 1200000,
 	"persist": {
 		"path": "/home/tombert/.config/sway/persist7.json",
 		"buffer_size": 100
@@ -16,6 +16,10 @@
 			"name": "quote",
 			"ttl": 480000,
 			"timeout": 1000
+		},
+		{
+			"name": "battery",
+			"ttl": 10000 
 		},
 		{
 			"name": "volume",
